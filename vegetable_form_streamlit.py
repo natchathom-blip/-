@@ -384,7 +384,10 @@ elif mode == "🔐 ผู้สร้าง":
     users_db = load_users()
     if "logged_in_user" not in st.session_state:
         st.session_state.logged_in_user = None
+    if "must_reset" not in st.session_state:
+        st.session_state.must_reset = False
 
+    # ── หน้า Login ──
     if not st.session_state.logged_in_user:
         st.subheader("🔑 เข้าสู่ระบบผู้สร้าง")
         u_in = st.text_input("ชื่อผู้ใช้", key="lin_u")
@@ -392,13 +395,47 @@ elif mode == "🔐 ผู้สร้าง":
         if st.button("ตกลง", use_container_width=True):
             if u_in in users_db and users_db[u_in] == p_in:
                 st.session_state.logged_in_user = u_in
+                # ถ้าเข้าด้วยรหัสกลาง → บังคับตั้งรหัสใหม่
+                if u_in == MASTER_USER and p_in == MASTER_PASS:
+                    st.session_state.must_reset = True
+                else:
+                    st.session_state.must_reset = False
                 st.rerun()
             else:
                 st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+
+    # ── บังคับตั้งรหัสใหม่ (เฉพาะคนที่เข้าด้วยรหัสกลาง) ──
+    elif st.session_state.must_reset:
+        st.subheader("🔒 ตั้งรหัสผ่านส่วนตัวก่อนใช้งาน")
+        st.info("คุณเข้าสู่ระบบด้วยรหัสกลาง กรุณาตั้งชื่อผู้ใช้และรหัสผ่านของตัวเองก่อน")
+
+        new_u     = st.text_input("ชื่อผู้ใช้ใหม่ (ห้ามซ้ำกับ 'newuser')")
+        new_p     = st.text_input("รหัสผ่านใหม่", type="password")
+        confirm_p = st.text_input("ยืนยันรหัสผ่านใหม่", type="password")
+
+        if st.button("บันทึกและเข้าใช้งาน", use_container_width=True):
+            if not new_u or not new_p:
+                st.error("กรุณากรอกข้อมูลให้ครบ")
+            elif new_u == MASTER_USER:
+                st.error("❌ ไม่สามารถใช้ชื่อ 'newuser' ได้ กรุณาเลือกชื่ออื่น")
+            elif new_p != confirm_p:
+                st.error("❌ รหัสผ่านไม่ตรงกัน")
+            else:
+                save_user(new_u, new_p)
+                st.session_state.logged_in_user = new_u
+                st.session_state.must_reset = False
+                st.success(f"✅ บันทึกสำเร็จ! ยินดีต้อนรับ {new_u}")
+                st.rerun()
+
+    # ── หน้าหลักหลัง login ──
     else:
         st.sidebar.button("ออกจากระบบ",
-                          on_click=lambda: st.session_state.update({"logged_in_user": None}))
-        tab_data, tab_pass = st.tabs(["📊 ข้อมูลสรุปทั้งหมด", "⚙️ ตั้งค่ารหัสผ่านส่วนตัว"])
+                          on_click=lambda: st.session_state.update({
+                              "logged_in_user": None,
+                              "must_reset": False
+                          }))
+
+        tab_data, tab_pass = st.tabs(["📊 ข้อมูลสรุปทั้งหมด", "⚙️ เปลี่ยนรหัสผ่าน"])
 
         with tab_data:
             st.subheader("📂 ข้อมูลทั้งหมดในระบบ")
@@ -410,13 +447,13 @@ elif mode == "🔐 ผู้สร้าง":
                     st.info("ยังไม่มีข้อมูลการบันทึก")
 
         with tab_pass:
-            st.subheader("🛠 จัดการบัญชีผู้ใช้")
-            new_u     = st.text_input("ชื่อผู้ใช้ใหม่", value=st.session_state.logged_in_user)
-            new_p     = st.text_input("รหัสผ่านใหม่", type="password")
-            confirm_p = st.text_input("ยืนยันรหัสผ่านใหม่", type="password")
-            if st.button("บันทึกการตั้งค่า"):
-                if new_p == confirm_p and new_u and new_p:
-                    save_user(new_u, new_p)
-                    st.success(f"บันทึกข้อมูล User: {new_u} เรียบร้อย!")
+            st.subheader("🛠 เปลี่ยนรหัสผ่านของตัวเอง")
+            st.info(f"ผู้ใช้ปัจจุบัน: **{st.session_state.logged_in_user}**")
+            new_p2     = st.text_input("รหัสผ่านใหม่", type="password", key="np2")
+            confirm_p2 = st.text_input("ยืนยันรหัสผ่านใหม่", type="password", key="cp2")
+            if st.button("บันทึกรหัสผ่านใหม่"):
+                if new_p2 and new_p2 == confirm_p2:
+                    save_user(st.session_state.logged_in_user, new_p2)
+                    st.success("✅ เปลี่ยนรหัสผ่านเรียบร้อย!")
                 else:
-                    st.error("ข้อมูลไม่ถูกต้องหรือรหัสผ่านไม่ตรงกัน")
+                    st.error("❌ รหัสผ่านไม่ตรงกันหรือกรอกไม่ครบ")
