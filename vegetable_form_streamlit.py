@@ -19,7 +19,7 @@ EXCEL_PATH = os.path.expanduser("~/Desktop/vegetable_delivery_records.xlsx")
 @st.cache_data
 def load_thailand_data():
     try:
-        df = pd.read_excel('/Users/natchatho/Downloads/thailand.xlsx', sheet_name=0)
+        df = pd.read_excel('thailand.xlsx', sheet_name=0)
         return df
     except Exception as e:
         st.warning(f"⚠️ ไม่สามารถโหลดข้อมูลจังหวัด: {str(e)}")
