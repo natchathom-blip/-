@@ -16,40 +16,22 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ฟังก์ชันโหลดข้อมูล (แก้ปัญหา "ไม่พบไฟล์") ---
+# --- 2. ฟังก์ชันโหลดข้อมูลที่อยู่ ---
 @st.cache_data
 def load_address_data():
-    # รายชื่อไฟล์ที่อาจเป็นไปได้
-    possible_files = ['thailand.xlsx - Sheet1.csv', 'thailand.csv', 'thailand.xlsx']
-    
-    # ลองหาไฟล์ในโฟลเดอร์ปัจจุบัน
-    target_file = None
-    for f in possible_files:
-        if os.path.exists(f):
-            target_file = f
-            break
-            
-    if target_file:
+    file_path = 'thailand.xlsx - Sheet1.csv'
+    if os.path.exists(file_path):
         try:
-            if target_file.endswith('.csv'):
-                df = pd.read_csv(target_file)
-            else:
-                df = pd.read_excel(target_file)
-            
-            # ล้างช่องว่างหัวตาราง
+            df = pd.read_csv(file_path)
             df.columns = [str(c).strip() for c in df.columns]
             return df
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ {target_file}: {e}")
+        except:
             return pd.DataFrame()
-    else:
-        # ถ้าหาไม่เจอจริงๆ จะแจ้งเตือนให้ผู้ใช้ทราบ
-        st.warning("⚠️ ไม่พบไฟล์ข้อมูลที่อยู่ (thailand.csv) ในระบบ ระบบจะให้คุณกรอกที่อยู่เอง")
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 df_addr = load_address_data()
 
-# --- 3. ส่วนหัวแบบฟอร์ม (Header) ---
+# --- 3. ส่วนหัว (Header) ---
 st.markdown("""
     <div class="header-container">
         <div style="display: flex; align-items: center;">
@@ -65,81 +47,87 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (ครบตามรูป image_a4592f.png) ---
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (ตัวแปรหลัก) ---
 st.markdown('<div class="section-header">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</div>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
-with c1: s_name = st.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
-with c2: s_date = st.date_input("วันที่ส่งวัตถุดิบ *", key="s_date")
-with c3: s_time = st.text_input("เวลาส่ง (น.)", placeholder="เช่น 14:00", key="s_time")
+s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
+s_date = c2.date_input("วันที่ส่งวัตถุดิบ *", key="s_date")
+s_time = c3.text_input("เวลาส่ง (น.)", placeholder="เช่น 14:00", key="s_time")
 
 c4, c5, c6 = st.columns(3)
-with c4: s_email = st.text_input("อีเมลสำหรับรับ PDF *", key="s_email")
-with c5: recorder = st.text_input("ลงชื่อผู้กรอก", key="recorder")
-with c6: origin_main = st.selectbox("ประเทศแหล่งปลูกหลัก", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
+s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="s_email")
+recorder = c5.text_input("ลงชื่อผู้กรอก", key="recorder")
+# ประเทศหลักใช้ตัวแปรนี้ Lock ไว้
+origin_main = c6.selectbox("ประเทศแหล่งปลูกหลัก *", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
+if origin_main == "อื่นๆ":
+    origin_other = st.text_input("ระบุชื่อประเทศ *", key="origin_other")
+else:
+    origin_other = ""
 
-# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (ครบตามรูป image_a46037.png) ---
-if 'items_count' not in st.session_state: st.session_state.items_count = 1
-def add_item(): st.session_state.items_count += 1
+# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (Lock ข้อมูลด้วย Session State) ---
+if 'items_count' not in st.session_state:
+    st.session_state.items_count = 1
 
-st.markdown('<div class="section-header">ส่วนที่ 2 — รายการวัตถุดิบ (เพิ่มได้ไม่จำกัด)</div>', unsafe_allow_html=True)
+def add_item():
+    st.session_state.items_count += 1
+
+st.markdown('<div class="section-header">ส่วนที่ 2 — รายการวัตถุดิบ</div>', unsafe_allow_html=True)
 
 for i in range(st.session_state.items_count):
     st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
     
     col_h, col_del = st.columns([0.8, 0.2])
-    col_h.subheader(f"รายการที่ {i+1}")
+    col_h.subheader(f"รายการที่ {i+1} (แหล่งปลูก: {origin_main if origin_main != 'อื่นๆ' else origin_other})")
+    
     if st.session_state.items_count > 1 and col_del.button(f"✕ ลบรายการนี้", key=f"del_{i}"):
         st.session_state.items_count -= 1
         st.rerun()
 
-    # แถวที่ 1: ข้อมูลวัตถุดิบ
+    # แถวที่ 1
     r1c1, r1c2, r1c3 = st.columns([2, 1, 1])
     r1c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-    r1c2.text_input("Code", placeholder="เช่น 71000277", key=f"code_{i}")
+    r1c2.text_input("Code", key=f"code_{i}")
     r1c3.number_input("จำนวน (KG) *", min_value=0.0, step=0.1, key=f"qty_{i}")
 
-    # แถวที่ 2: วันเวลา
+    # แถวที่ 2
     r2c1, r2c2, r2c3 = st.columns(3)
     r2c1.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-    r2c2.text_input("เวลาเก็บเกี่ยว", placeholder="เช่น 08:00", key=f"ht_{i}")
+    r2c2.text_input("เวลาเก็บเกี่ยว", key=f"ht_{i}")
     r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"cd_{i}")
 
-    # แถวที่ 3: ผู้ปลูก
+    # แถวที่ 3
     r3c1, r3c2, r3c3 = st.columns(3)
-    r3c1.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00-09:30", key=f"ct_{i}")
+    r3c1.text_input("เวลาที่ล้างทำความสะอาด", key=f"ct_{i}")
     r3c2.text_input("ชื่อผู้ปลูก", key=f"grow_{i}")
     r3c3.text_input("เลขที่ GAP", key=f"gap_{i}")
 
-    # แถวที่ 4: ที่อยู่
+    # แถวที่ 4
     r4c1, r4c2, r4c3 = st.columns(3)
     r4c1.text_input("รหัสไร่", key=f"farm_{i}")
     r4c2.text_input("ที่อยู่เลขที่", key=f"addr_no_{i}")
     r4c3.text_input("หมู่ที่", key=f"moo_{i}")
 
-    # แถวที่ 5: 📍 Dropdown จังหวัด อำเภอ ตำบล
-    st.markdown("📍 **ที่อยู่แหล่งปลูก**")
-    a1, a2, a3, a4 = st.columns(4)
-    a1.selectbox("ประเทศ", ["ไทย", "จีน", "อื่นๆ"], key=f"country_{i}")
+    # แถวที่ 5: ที่อยู่ (ไม่มีช่องกรอกประเทศแล้ว)
+    st.markdown(f"📍 **ที่อยู่แหล่งปลูกใน {origin_main if origin_main != 'อื่นๆ' else origin_other}**")
+    a2, a3, a4 = st.columns(3)
     
-    if not df_addr.empty and "จังหวัด" in df_addr.columns:
-        # จังหวัด
+    # ดึง Dropdown เฉพาะกรณีเป็นประเทศไทย
+    if origin_main == "ประเทศไทย" and not df_addr.empty:
         p_list = sorted(df_addr["จังหวัด"].unique())
         sel_p = a2.selectbox("จังหวัด", ["- เลือก -"] + p_list, key=f"p_{i}")
         
-        # อำเภอ
         amp_opts = sorted(df_addr[df_addr["จังหวัด"] == sel_p]["อำเภอ"].unique()) if sel_p != "- เลือก -" else []
         sel_a = a3.selectbox("อำเภอ", ["- เลือก -"] + amp_opts, key=f"a_{i}")
         
-        # ตำบล
         tam_opts = sorted(df_addr[(df_addr["จังหวัด"] == sel_p) & (df_addr["อำเภอ"] == sel_a)]["ตำบล"].unique()) if sel_a != "- เลือก -" else []
         sel_t = a4.selectbox("ตำบล", ["- เลือก -"] + tam_opts, key=f"t_{i}")
     else:
-        # กรณีไม่พบไฟล์ ให้กรอกเองแทนเพื่อไม่ให้แอปค้าง
-        a2.text_input("จังหวัด", key=f"p_manual_{i}")
-        a3.text_input("อำเภอ", key=f"a_manual_{i}")
-        a4.text_input("ตำบล", key=f"t_manual_{i}")
+        # ถ้าเป็น จีน หรือ อื่นๆ ให้กรอก จังหวัด/เมือง เอง
+        a2.text_input("จังหวัด/มณฑล", key=f"p_man_{i}")
+        a3.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
+        a4.text_input("ตำบล/แขวง", key=f"t_man_{i}")
 
-    # แถวสุดท้าย
+    # แถวที่ 6
     r5c1, r5c2, r5c3, r5c4 = st.columns(4)
     r5c1.text_input("รหัสไปรษณีย์", key=f"z_{i}")
     r5c2.text_input("สายพันธุ์", key=f"breed_{i}")
@@ -150,10 +138,10 @@ for i in range(st.session_state.items_count):
 
 st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
 
-# --- 6. ปุ่มส่งข้อมูล ---
+# --- 6. ยืนยันข้อมูล ---
 st.write("---")
-if st.button("✅ ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
+if st.button("ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
     if not s_name or not s_email:
-        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมลให้ครบถ้วน")
+        st.error("กรุณากรอกข้อมูลส่วนที่ 1 ให้ครบถ้วน")
     else:
-        st.success("บันทึกข้อมูลเรียบร้อย!")
+        st.success("บันทึกข้อมูลเรียบร้อยแล้ว ข้อมูลทั้งหมดถูก Lock ไว้ในระบบ")
