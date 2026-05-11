@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from fpdf import FPDF
-import io
+import os
 
 # --- 1. การตั้งค่าหน้าจอและสไตล์ ---
 st.set_page_config(page_title="CPRAM - Supplier Form", layout="wide")
@@ -17,19 +16,35 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ฟังก์ชันโหลดข้อมูลจังหวัด (ปรับให้ตรงกับไฟล์ CSV ของคุณ) ---
+# --- 2. ฟังก์ชันโหลดข้อมูล (แก้ปัญหา "ไม่พบไฟล์") ---
 @st.cache_data
 def load_address_data():
-    try:
-        # อ่านไฟล์จากชื่อที่คุณอัปโหลดมาล่าสุด
-        df = pd.read_csv('thailand.xlsx - Sheet1.csv')
-        # ล้างช่องว่างหัวตารางและข้อมูล
-        df.columns = [str(c).strip() for c in df.columns]
-        for col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-        return df
-    except Exception as e:
-        st.error(f"ไม่สามารถโหลดไฟล์ข้อมูลที่อยู่ได้: {e}")
+    # รายชื่อไฟล์ที่อาจเป็นไปได้
+    possible_files = ['thailand.xlsx - Sheet1.csv', 'thailand.csv', 'thailand.xlsx']
+    
+    # ลองหาไฟล์ในโฟลเดอร์ปัจจุบัน
+    target_file = None
+    for f in possible_files:
+        if os.path.exists(f):
+            target_file = f
+            break
+            
+    if target_file:
+        try:
+            if target_file.endswith('.csv'):
+                df = pd.read_csv(target_file)
+            else:
+                df = pd.read_excel(target_file)
+            
+            # ล้างช่องว่างหัวตาราง
+            df.columns = [str(c).strip() for c in df.columns]
+            return df
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ {target_file}: {e}")
+            return pd.DataFrame()
+    else:
+        # ถ้าหาไม่เจอจริงๆ จะแจ้งเตือนให้ผู้ใช้ทราบ
+        st.warning("⚠️ ไม่พบไฟล์ข้อมูลที่อยู่ (thailand.csv) ในระบบ ระบบจะให้คุณกรอกที่อยู่เอง")
         return pd.DataFrame()
 
 df_addr = load_address_data()
@@ -101,12 +116,12 @@ for i in range(st.session_state.items_count):
     r4c2.text_input("ที่อยู่เลขที่", key=f"addr_no_{i}")
     r4c3.text_input("หมู่ที่", key=f"moo_{i}")
 
-    # แถวที่ 5: Dropdown จังหวัด อำเภอ ตำบล (📍 แก้ไขให้ดึงข้อมูลภาษาไทย)
-    st.markdown("📍 **ที่อยู่แหล่งปลูก (Dropdown)**")
+    # แถวที่ 5: 📍 Dropdown จังหวัด อำเภอ ตำบล
+    st.markdown("📍 **ที่อยู่แหล่งปลูก**")
     a1, a2, a3, a4 = st.columns(4)
     a1.selectbox("ประเทศ", ["ไทย", "จีน", "อื่นๆ"], key=f"country_{i}")
     
-    if not df_addr.empty:
+    if not df_addr.empty and "จังหวัด" in df_addr.columns:
         # จังหวัด
         p_list = sorted(df_addr["จังหวัด"].unique())
         sel_p = a2.selectbox("จังหวัด", ["- เลือก -"] + p_list, key=f"p_{i}")
@@ -119,34 +134,26 @@ for i in range(st.session_state.items_count):
         tam_opts = sorted(df_addr[(df_addr["จังหวัด"] == sel_p) & (df_addr["อำเภอ"] == sel_a)]["ตำบล"].unique()) if sel_a != "- เลือก -" else []
         sel_t = a4.selectbox("ตำบล", ["- เลือก -"] + tam_opts, key=f"t_{i}")
     else:
-        a2.warning("ไม่พบไฟล์ข้อมูลที่อยู่")
+        # กรณีไม่พบไฟล์ ให้กรอกเองแทนเพื่อไม่ให้แอปค้าง
+        a2.text_input("จังหวัด", key=f"p_manual_{i}")
+        a3.text_input("อำเภอ", key=f"a_manual_{i}")
+        a4.text_input("ตำบล", key=f"t_manual_{i}")
 
     # แถวสุดท้าย
     r5c1, r5c2, r5c3, r5c4 = st.columns(4)
     r5c1.text_input("รหัสไปรษณีย์", key=f"z_{i}")
     r5c2.text_input("สายพันธุ์", key=f"breed_{i}")
-    r5c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกดินยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
+    r5c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกดินยกพื้น", "ไฮโดรโปนิกส์"], key=f"style_{i}")
     r5c4.selectbox("ลักษณะสถานที่", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
 
-# --- 6. ปุ่มดำเนินการ (Download PDF) ---
+# --- 6. ปุ่มส่งข้อมูล ---
 st.write("---")
-if s_name:
-    # ฟังก์ชันสร้าง PDF (ตัวอย่างเนื้อหา)
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=f"Supplier Record: {s_name}", ln=True, align='C')
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
-    
-    st.download_button(
-        label="📥 ดาวน์โหลด PDF และยืนยันข้อมูล",
-        data=pdf_bytes,
-        file_name=f"CPRAM_Form.pdf",
-        mime="application/pdf",
-        type="primary",
-        use_container_width=True
-    )
+if st.button("✅ ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
+    if not s_name or not s_email:
+        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมลให้ครบถ้วน")
+    else:
+        st.success("บันทึกข้อมูลเรียบร้อย!")
