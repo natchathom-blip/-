@@ -4,10 +4,10 @@ from datetime import datetime
 import os
 from fpdf import FPDF
 
-# --- 1. การตั้งค่าหน้าจอและสไตล์ ---
-st.set_page_config(page_title="CPRAM - Supplier Form", layout="wide")
+# --- 1. การตั้งค่าหน้าจอ ---
+st.set_page_config(page_title="CPRAM Supplier Form", layout="wide")
 
-# --- 2. ฟังก์ชันโหลดข้อมูลที่อยู่ (กัน Error ไฟล์ไม่พบ) ---
+# --- 2. ฟังก์ชันโหลดข้อมูลที่อยู่ (ป้องกัน Error ไฟล์หาย) ---
 @st.cache_data
 def load_address_data():
     file_path = 'thailand.xlsx - Sheet1.csv'
@@ -30,7 +30,7 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (Lock ข้อมูลด้วย session_state) ---
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (Lock ข้อมูลไว้ใน Session State) ---
 st.markdown('<p style="color: #2e7d32; font-size: 20px; font-weight: bold;">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</p>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
 s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
@@ -66,13 +66,19 @@ for i in range(st.session_state.items_count):
             st.session_state.items_count -= 1
             st.rerun()
 
-        # แถวข้อมูลวัตถุดิบ (ข้อมูลจะไม่หายเพราะมี key เฉพาะตัว)
+        # แถวข้อมูลวัตถุดิบ
         r1, r2, r3 = st.columns([2, 1, 1])
         r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
         r2.text_input("Code", key=f"code_{i}")
         r3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_{i}")
 
-        # ที่อยู่แหล่งปลูก (Dropdown จะแสดงผลเฉพาะ "ประเทศไทย")
+        # วันเวลาที่เก็บเกี่ยว/ล้าง (เพิ่มฟิลด์ตามรูปภาพล่าสุด)
+        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1.date_input("วันที่เก็บเกี่ยว", key=f"h_date_{i}")
+        r2c2.text_input("เวลาเก็บเกี่ยว", key=f"h_time_{i}")
+        r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"c_date_{i}")
+
+        # ที่อยู่แหล่งปลูก
         st.markdown(f"📍 **ที่อยู่แหล่งปลูก ({origin_main})**")
         if origin_main == "ประเทศไทย" and not df_addr.empty:
             a1, a2, a3 = st.columns(3)
@@ -90,7 +96,7 @@ for i in range(st.session_state.items_count):
             a2.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
             a3.text_input("ตำบล/แขวง", key=f"t_man_{i}")
 
-        # ลักษณะการปลูก (Dropdown ตามสั่ง)
+        # ลักษณะการปลูก
         r4c1, r4c2, r4c3 = st.columns(3)
         r4c1.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
         r4c2.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
@@ -100,29 +106,31 @@ for i in range(st.session_state.items_count):
 
 st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
 
-# --- 6. ระบบสร้าง PDF และดาวน์โหลด (โหลดได้จริง) ---
+# --- 6. ปุ่มยืนยันและสร้าง PDF ---
 st.write("---")
-if st.button("✅ ยืนยันข้อมูลและรับ PDF", type="primary", use_container_width=True):
+if st.button("✅ ยืนยันข้อมูลและรับไฟล์ PDF", type="primary", use_container_width=True):
     if not s_name or not s_email:
-        st.error("กรุณากรอกข้อมูลชื่อผู้ส่งมอบและอีเมลให้ครบถ้วนก่อน")
+        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมลให้เรียบร้อย")
     else:
-        # สร้าง PDF แบบง่าย (จำลองภาษาไทยด้วยการไม่ใช้ตัวอักษรพิเศษถ้ายังไม่มี Font)
+        # สร้าง PDF
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 16)
-        pdf.cell(200, 10, txt="CPRAM - Supplier Form", ln=True, align='C')
+        pdf.cell(200, 10, txt="CPRAM - Supplier Record", ln=True, align='C')
         pdf.ln(10)
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=f"Supplier Name: {s_name}", ln=True)
+        pdf.cell(200, 10, txt=f"Supplier: {s_name}", ln=True)
+        pdf.cell(200, 10, txt=f"Email: {s_email}", ln=True)
         pdf.cell(200, 10, txt=f"Date: {s_date}", ln=True)
         
+        # บันทึกเป็น PDF bytes
         pdf_bytes = pdf.output(dest='S').encode('latin-1', errors='ignore')
         
-        st.success("สร้างข้อมูลเรียบร้อย! กรุณากดปุ่มด้านล่างเพื่อดาวน์โหลด")
+        st.success("บันทึกข้อมูลและสร้าง PDF สำเร็จ!")
         st.download_button(
-            label="📥 ดาวน์โหลดไฟล์ PDF ของคุณที่นี่",
+            label="📥 คลิกที่นี่เพื่อดาวน์โหลด PDF",
             data=pdf_bytes,
-            file_name=f"CPRAM_Form_{s_name}.pdf",
+            file_name=f"CPRAM_{s_name}_{datetime.now().strftime('%d%m%y')}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
