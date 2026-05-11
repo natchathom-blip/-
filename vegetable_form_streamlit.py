@@ -2,34 +2,16 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime, time
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
 
-# --- 1. CONFIG & DATA ---
-st.set_page_config(page_title="CPRAM Supplier Form", layout="wide")
+# --- 1. SETUP ---
+st.set_page_config(page_title="CPRAM Form", layout="wide")
 
-# ฟังก์ชันโหลดข้อมูลที่อยู่
-@st.cache_data
-def load_address():
-    try:
-        df = pd.read_excel('thailand.xlsx')
-        df.columns = [str(c).strip() for c in df.columns]
-        return df
-    except:
-        return pd.DataFrame()
-
-df_addr = load_address()
-
-# --- 2. SESSION STATE (กันข้อมูลหาย) ---
+# --- 2. SESSION STATE (หัวใจสำคัญที่ทำให้ข้อมูลไม่หาย) ---
+# เราจะใช้รหัส 'key' ในทุกช่อง input เพื่อให้ Streamlit จำค่าไว้ในหน่วยความจำ
 if 'items_count' not in st.session_state:
     st.session_state.items_count = 1
 
-def add_item():
-    st.session_state.items_count += 1
-
-# --- 3. UI HEADER ---
+# --- 3. HEADER (FR-QAS-10-000) ---
 st.markdown(f"""
     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #2e7d32; padding-bottom: 10px;">
         <div style="display: flex; align-items: center;">
@@ -43,39 +25,51 @@ st.markdown(f"""
             <small>มีผลใช้งาน: 2026-05-08</small>
         </div>
     </div>
+    <h3 style="text-align: center; color: #2e7d32; margin-top: 20px;">แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>
     """, unsafe_allow_html=True)
 
-# --- 4. FORM ---
-with st.form("delivery_form"):
-    st.subheader("ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ")
-    c1, c2 = st.columns(2)
-    s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name_input")
-    s_email = c2.text_input("อีเมลสำหรับรับไฟล์ PDF *", key="s_email_input")
-    
-    st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ")
-    items_data = []
-    for i in range(st.session_state.items_count):
-        st.markdown(f"**รายการที่ {i+1}**")
-        r1, r2 = st.columns([2, 1])
-        mat = r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
-        farm = r2.text_input("รหัสไร่", key=f"farm_{i}")
+# --- 4. FORM UI ---
+# ใช้ st.container แทน st.form ในกรณีที่ต้องการให้ปุ่ม "เพิ่มรายการ" ทำงานได้ทันทีโดยไม่ล้างค่า
+st.subheader("ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ")
+c1, c2, c3 = st.columns(3)
+# ทุกช่องต้องมี 'key' เพื่อล็อกข้อมูล
+s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="keep_s_name")
+s_date = c2.date_input("วันที่ส่งวัตถุดิบ *", key="keep_s_date")
+s_time = c3.time_input("เวลาส่ง *", value=time(14, 0), key="keep_s_time")
+
+c4, c5 = st.columns(2)
+s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="keep_s_email")
+recorder = c5.text_input("ลงชื่อผู้กรอก", key="keep_recorder")
+
+st.markdown("---")
+st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ")
+
+# วนลูปสร้างรายการวัตถุดิบตามจำนวน items_count
+for i in range(st.session_state.items_count):
+    with st.expander(f"📦 รายการที่ {i+1}", expanded=True):
+        col1, col2, col3 = st.columns([2, 1, 1])
+        # ใช้ i ใน key เพื่อให้แต่ละรายการมี ID แยกกัน เช่น mat_0, mat_1
+        col1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
+        col2.text_input("Code", key=f"code_{i}")
+        col3.number_input("จำนวน (KG)", min_value=0.0, key=f"qty_{i}")
         
-        # เก็บข้อมูลไว้ใน list เพื่อไปสร้าง PDF
-        items_data.append({'mat': mat, 'farm': farm})
-        st.write("---")
+        r2c1, r2c2, r2c3 = st.columns(3)
+        r2c1.text_input("รหัสไร่", key=f"farm_{i}")
+        r2c2.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
+        r2c3.text_input("เลขที่ GAP", key=f"gap_{i}")
 
-    # ปรับชื่อปุ่มตามที่ต้องการ (เอาคำว่า ทันที ออก)
-    submit = st.form_submit_button("ยืนยันข้อมูลและส่ง PDF", type="primary")
+# --- 5. BUTTONS ---
+col_btn1, col_btn2 = st.columns([0.2, 0.8])
 
-# ปุ่มเพิ่มรายการ (อยู่นอก Form)
-st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
+with col_btn1:
+    if st.button("+ เพิ่มรายการวัตถุดิบ"):
+        st.session_state.items_count += 1
+        st.rerun() # เพิ่มจำนวนแล้วรันใหม่ ข้อมูลที่มี key จะไม่หาย
 
-# --- 5. LOGIC เมื่อกดส่ง ---
-if submit:
-    if not s_name or not s_email:
-        st.error("❌ กรุณากรอกข้อมูลชื่อและอีเมลให้ครบถ้วน")
-    else:
-        # ระบบจะประมวลผลส่งเมลตรงนี้ (ใช้ SMTP Logic เดิม)
-        st.success(f"บันทึกข้อมูลเรียบร้อย! ระบบกำลังส่ง PDF ไปที่ {s_email}")
-        # pdf_bytes = generate_pdf(...)
-        # send_email(pdf_bytes, s_email)
+with col_btn2:
+    if st.button("ยืนยันข้อมูลและส่ง PDF", type="primary"):
+        if not s_name or not s_email:
+            st.error("❌ กรุณากรอกชื่อผู้ส่งมอบและอีเมลในส่วนที่ 1")
+        else:
+            st.success(f"✅ บันทึกข้อมูลเรียบร้อย! ระบบกำลังส่ง PDF ไปที่ {s_email}")
+            # ข้อมูลในส่วนที่ 2 สามารถดึงมาใช้ได้ผ่าน st.session_state[f'mat_{i}']
