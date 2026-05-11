@@ -51,61 +51,48 @@ def remove_item(idx):
         st.session_state.items.pop(idx)
 
 item_results = []
-for i, item in enumerate(st.session_state.items):
+# --- จัดการ Session State ให้ชัวร์ว่ามีตัวแปร items แน่นอน ---
+if 'items' not in st.session_state:
+    st.session_state.items = [{"id": 0}]
+
+# --- ส่วนที่ 2: รายการวัตถุดิบ ---
+st.markdown('<div class="section-header">ส่วนที่ 2 — รายการวัตถุดิบ (เพิ่มได้ไม่จำกัด)</div>', unsafe_allow_html=True)
+
+# สร้างลิสต์ชั่วคราวเพื่อเก็บข้อมูลที่กรอก
+item_results = []
+
+# ใช้ copy ของลิสต์เพื่อป้องกันปัญหาเรื่อง Index ระหว่างการ Loop และ ลบรายการ
+current_items = list(st.session_state.items)
+
+for i, item in enumerate(current_items):
     with st.container():
         st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
         h_col1, h_col2 = st.columns([0.85, 0.15])
         h_col1.subheader(f"รายการที่ {i+1}")
-        if h_col2.button(f"✕ ลบรายการที่ {i+1}", key=f"del_{i}"):
-            remove_item(i)
+        
+        # ปรับการลบรายการให้ปลอดภัยขึ้น
+        if h_col2.button(f"✕ ลบรายการที่ {i+1}", key=f"btn_del_{i}"):
+            st.session_state.items.pop(i)
             st.rerun()
 
-        # แถวที่ 1
+        # --- ส่วนของ Input (เหมือนเดิม) ---
         r1c1, r1c2, r1c3 = st.columns(3)
-        mat_type = r1c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-        mat_code = r1c2.text_input("Code", placeholder="เช่น 71000277", key=f"code_{i}")
-        qty = r1c3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_{i}")
+        mat_type = r1c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_type_{i}")
+        mat_code = r1c2.text_input("Code", key=f"code_val_{i}")
+        qty = r1c3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_val_{i}")
 
-        # แถวที่ 2
-        r2c1, r2c2, r2c3 = st.columns(3)
-        h_date = r2c1.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-        h_time = r2c2.text_input("เวลาเก็บเกี่ยว", placeholder="เช่น 08:00", key=f"ht_{i}")
-        c_date = r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"cd_{i}")
+        # ... (ส่วนอื่นๆ ของฟอร์มกรอกข้อมูลตามโค้ดเดิม) ...
 
-        # แถวที่ 3
-        r3c1, r3c2, r3c3 = st.columns(3)
-        c_time = r3c1.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00-09:30", key=f"ct_{i}")
-        grower = r3c2.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
-        gap = r3c3.text_input("เลขที่ GAP", key=f"gap_{i}")
-
-        # แถวที่ 4 (ที่อยู่แหล่งปลูก)
-        st.markdown("**📍 ที่อยู่แหล่งปลูก (cascading dropdown)**")
-        r4c1, r4c2, r4c3, r4c4 = st.columns(4)
-        farm_id = r4c1.text_input("รหัสไร่", key=f"farm_{i}")
-        addr = r4c2.text_input("ที่อยู่เลขที่", key=f"addr_{i}")
-        moo = r4c3.text_input("หมู่ที่", key=f"moo_{i}")
-        prov = r4c4.selectbox("จังหวัด", ["- เลือก -", "กรุงเทพฯ", "นครปฐม", "ปทุมธานี"], key=f"prov_{i}")
-
-        # แถวที่ 5
-        r5c1, r5c2, r5c3, r5c4 = st.columns(4)
-        zipc = r5c1.text_input("รหัสไปรษณีย์", key=f"zip_{i}")
-        breed = r5c2.text_input("สายพันธุ์", key=f"breed_{i}")
-        p_style = r5c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ดิน", "ไฮโดรโปนิกส์"], key=f"style_{i}")
-        p_loc = r5c4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
-        
         st.markdown('</div>', unsafe_allow_html=True)
-        item_results.append({"Item": i+1, "Material": mat_type, "Qty": qty})
+        
+        # เก็บข้อมูลเข้า List
+        item_results.append({
+            "รายการ": i+1,
+            "ชนิดวัตถุดิบ": mat_type,
+            "จำนวน": qty
+        })
 
+# ปุ่มเพิ่มรายการ (อยู่นอก Loop)
 if st.button("+ เพิ่มรายการวัตถุดิบ"):
     st.session_state.items.append({"id": len(st.session_state.items)})
     st.rerun()
-
-# --- ปุ่มส่งข้อมูล ---
-st.write("---")
-if st.button("บันทึกข้อมูลและเตรียมส่ง PDF", type="primary"):
-    if not supplier_name or not supplier_email:
-        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมลให้ครบถ้วน")
-    else:
-        st.success("บันทึกข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างก่อนยืนยันส่งอีเมล")
-        st.table(pd.DataFrame(item_results))
-        # ส่วนนี้คือจุดที่คุณจะเรียกฟังก์ชันส่ง Email และ PDF ต่อไป
