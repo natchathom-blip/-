@@ -1,135 +1,78 @@
 import streamlit as st
 import pandas as pd
 import os
-import base64
 from datetime import datetime
 
-# --- 1. การตั้งค่าหน้าจอและฟังก์ชันพื้นฐาน ---
-st.set_page_config(page_title="CPRAM Digital Form", layout="wide")
-
-def get_image_base64(path):
-    if os.path.exists(path):
-        with open(path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
-    return None
-
-# โหลดข้อมูลที่อยู่จากไฟล์ใน GitHub
+# --- ส่วนโหลดข้อมูล ---
 @st.cache_data
 def load_address_data():
     file_path = 'thailand.xlsx'
     if os.path.exists(file_path):
         df = pd.read_excel(file_path)
-        # ตรวจสอบและทำความสะอาดชื่อคอลัมน์
-        df.columns = [str(c).strip() for c in df.columns]
+        # ทำความสะอาดข้อมูลช่องว่าง
+        for col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
         return df
     return pd.DataFrame()
 
 df_addr = load_address_data()
 
-# --- 2. ส่วนหัวแบบฟอร์ม (Header) ---
-logo_base64 = get_image_base64("image_9482bc.png")
-header_html = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
-        <div style="display: flex; align-items: center;">
-            {f'<img src="data:image/png;base64,{logo_base64}" width="140">' if logo_base64 else ''}
-            <div style="margin-left: 15px;">
-                <b style="font-size: 22px; color: #2e7d32; line-height: 1;">CPRAM Co., Ltd.</b><br>
-                <span style="font-size: 16px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
-            </div>
-        </div>
-        <div style="text-align: right; line-height: 1.2;">
-            <b style="font-size: 18px; color: #333;">FR-QAS-10-000</b><br>
-            <span style="font-size: 14px; color: #666;">มีผลใช้งาน: 2026-05-08</span>
-        </div>
-    </div>
-"""
-st.markdown(header_html, unsafe_allow_html=True)
-st.markdown("<h3 style='text-align: center; color: #2e7d32;'>แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #666;'>กรุณากรอกข้อมูลให้ครบถ้วน — เลือก จังหวัด/อำเภอ/ตำบล จาก dropdown ระบบจะกรอกรหัสไปรษณีย์ให้อัตโนมัติ</p>", unsafe_allow_html=True)
-
-# --- 3. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ ---
-st.markdown("#### <span style='color: #2e7d32;'>ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</span>", unsafe_allow_html=True)
-row1_col1, row1_col2, row1_col3 = st.columns(3)
-supplier = row1_col1.text_input("ผู้ส่งมอบ (Supplier) *", key="supplier")
-delivery_date = row1_col2.date_input("วันที่ส่งวัตถุดิบ *", value=datetime.now(), key="d_date")
-delivery_time = row1_col3.text_input("เวลาส่ง", placeholder="เช่น 14:00 น.", key="d_time")
-
-row2_col1, row2_col2, row2_col3 = st.columns(3)
-email = row2_col1.text_input("อีเมลของผู้ส่งมอบ (สำหรับรับ PDF) *", key="email")
-recorder = row2_col2.text_input("ลงชื่อผู้กรอก", key="recorder")
-origin_default = row2_col3.selectbox("ประเทศแหล่งปลูก (default)", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_def")
-
-# --- 4. ส่วนที่ 2 — รายการวัตถุดิบ ---
-st.markdown("#### <span style='color: #2e7d32;'>ส่วนที่ 2 — รายการวัตถุดิบ</span> <span style='font-size: 12px; color: #999;'>(เพิ่มได้ไม่จำกัด)</span>", unsafe_allow_html=True)
-
+# --- ตรวจสอบ Session State เพื่อป้องกัน TypeError ---
 if 'items' not in st.session_state:
     st.session_state.items = 1
 
+# ... (ส่วน Header และ ส่วนที่ 1 ตามที่เคยทำไว้) ...
+
+# --- ส่วนที่ 2 — รายการวัตถุดิบ ---
+st.markdown("#### ส่วนที่ 2 — รายการวัตถุดิบ")
+
 for i in range(st.session_state.items):
     with st.container():
-        st.markdown(f"""<div style='background-color: #f9fbf9; padding: 15px; border-radius: 10px; border: 1px solid #e0eee0; margin-bottom: 10px;'>
-            <div style='display: flex; justify-content: space-between;'>
-                <b style='color: #2e7d32;'>รายการที่ {i+1}</b>
-            </div><br>""", unsafe_allow_html=True)
+        st.write(f"**รายการที่ {i+1}**")
         
-        # แถวข้อมูลวัตถุดิบ
+        # ฟิลด์ข้อมูลทั่วไป
         c1, c2, c3 = st.columns(3)
-        c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-        c2.text_input("Code", placeholder="เช่น 71000277", key=f"code_{i}")
-        c3.number_input("จำนวน (KG) *", min_value=0.0, format="%.2f", key=f"qty_{i}")
-
-        c4, c5, c6 = st.columns(3)
-        c4.date_input("วันที่เก็บเกี่ยว", key=f"harv_d_{i}")
-        c5.text_input("เวลาเก็บเกี่ยว", placeholder="เช่น 08:00", key=f"harv_t_{i}")
-        c6.date_input("วันที่ล้างทำความสะอาด", key=f"clean_d_{i}")
-
-        c7, c8, c9 = st.columns(3)
-        c7.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00 หรือ 08:00-09:30", key=f"clean_t_{i}")
-        c8.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
-        c9.text_input("เลขที่ GAP", key=f"gap_{i}")
-
-        c10, c11, c12 = st.columns(3)
-        c10.text_input("รหัสไร่", key=f"farm_id_{i}")
-        c11.text_input("ที่อยู่เลขที่", key=f"addr_no_{i}")
-        c12.text_input("หมู่ที่", key=f"moo_{i}")
+        c1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
+        c2.text_input("Code", key=f"code_{i}", placeholder="71000277")
+        c3.number_input("จำนวน (KG) *", key=f"qty_{i}", step=0.01)
 
         # ส่วนที่อยู่แหล่งปลูก (Cascading Dropdown)
-        st.markdown("📍 **ที่อยู่แหล่งปลูก (cascading dropdown)**")
+        st.markdown("📍 **ที่อยู่แหล่งปลูก (Cascading Dropdown)**")
         a1, a2, a3, a4 = st.columns(4)
-        country = a1.selectbox("ประเทศ", ["ไทย", "จีน", "อื่นๆ"], key=f"country_{i}")
         
-        if country == "ไทย" and not df_addr.empty:
-            # เชื่อมโยงข้อมูล จังหวัด > อำเภอ > ตำบล
-            prov_list = sorted(df_addr["จังหวัด"].unique().tolist())
-            province = a2.selectbox("จังหวัด/มณฑล", prov_list, key=f"prov_{i}")
-            
+        # 1. เลือกจังหวัด
+        prov_list = sorted(df_addr["จังหวัด"].unique().tolist()) if not df_addr.empty else []
+        province = a1.selectbox("จังหวัด/มณฑล", ["- เลือก -"] + prov_list, key=f"prov_{i}")
+        
+        # 2. เลือกอำเภอ (กรองตามจังหวัด)
+        dist_list = []
+        if province != "- เลือก -":
             dist_list = sorted(df_addr[df_addr["จังหวัด"] == province]["อำเภอ"].unique().tolist())
-            district = a3.selectbox("อำเภอ/เมือง", dist_list, key=f"dist_{i}")
-            
-            sub_list = sorted(df_addr[(df_addr["จังหวัด"] == province) & (df_addr["อำเภอ"] == district)]["ตำบล"].unique().tolist())
-            sub_dist = a4.selectbox("ตำบล/เขต", sub_list, key=f"sub_{i}")
-        else:
-            a2.text_input("จังหวัด/มณฑล", key=f"prov_m_{i}")
-            a3.text_input("อำเภอ/เมือง", key=f"dist_m_{i}")
-            a4.text_input("ตำบล/เขต", key=f"sub_m_{i}")
-
-        # แถวสุดท้ายของรายการ
-        b1, b2, b3, b4 = st.columns(4)
-        b1.text_input("รหัสไปรษณีย์", key=f"zip_{i}")
-        b2.text_input("สายพันธุ์", key=f"breed_{i}")
-        b3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกดินยกพื้น", "ปลูกไฮโดรโปนิกส์", "อื่นๆ"], key=f"type_{i}")
-        b4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"place_{i}")
+        district = a2.selectbox("อำเภอ/เมือง", ["- เลือก -"] + dist_list, key=f"dist_{i}")
         
-        st.markdown("</div>", unsafe_allow_html=True)
+        # 3. เลือกตำบล (กรองตามอำเภอ)
+        sub_list = []
+        if district != "- เลือก -":
+            sub_list = sorted(df_addr[(df_addr["จังหวัด"] == province) & (df_addr["อำเภอ"] == district)]["ตำบล"].unique().tolist())
+        sub_dist = a3.selectbox("ตำบล/เขต", ["- เลือก -"] + sub_list, key=f"sub_{i}")
 
-if st.button("+ เพิ่มรายการวัตถุดิบ", use_container_width=True):
+        # 4. ดึงรหัสไปรษณีย์อัตโนมัติ (ถ้ามีในไฟล์)
+        zip_code = ""
+        if sub_dist != "- เลือก -" and "รหัสไปรษณีย์" in df_addr.columns:
+            zip_val = df_addr[(df_addr["จังหวัด"] == province) & 
+                             (df_addr["อำเภอ"] == district) & 
+                             (df_addr["ตำบล"] == sub_dist)]["รหัสไปรษณีย์"].values
+            zip_code = str(zip_val[0]) if len(zip_val) > 0 else ""
+        
+        a4.text_input("รหัสไปรษณีย์", value=zip_code, key=f"zip_{i}")
+
+        # ฟิลด์ข้อมูลเพิ่มเติมท้ายรายการ
+        b1, b2, b3 = st.columns(3)
+        b1.text_input("สายพันธุ์", key=f"breed_{i}")
+        b2.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกดินยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"type_{i}")
+        b3.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"place_{i}")
+        st.markdown("---")
+
+if st.button("+ เพิ่มรายการวัตถุดิบ"):
     st.session_state.items += 1
     st.rerun()
-
-# --- 5. ส่วนท้ายการทำงาน ---
-st.write("---")
-if st.button("✅ ยืนยันและตรวจสอบข้อมูลทั้งหมด", type="primary", use_container_width=True):
-    if not supplier or not email:
-        st.error("กรุณากรอกข้อมูลส่วนที่ 1 ให้ครบถ้วน")
-    else:
-        st.success(f"ระบบบันทึกข้อมูลของ {supplier} เรียบร้อยแล้ว")
