@@ -7,7 +7,7 @@ from datetime import datetime
 # --- 1. การตั้งค่าหน้าจอ ---
 st.set_page_config(page_title="CPRAM Supplier Form", layout="wide")
 
-# --- 2. ฟังก์ชันโหลดข้อมูลที่อยู่ ---
+# --- 2. โหลดข้อมูลที่อยู่ (Dropdown จังหวัด/อำเภอ/ตำบล) ---
 @st.cache_data
 def load_address_data():
     file_path = 'thailand.xlsx - Sheet1.csv'
@@ -30,7 +30,7 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (ใช้ key เพื่อ Lock ข้อมูล) ---
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (Lock ข้อมูล) ---
 st.subheader("ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ")
 c1, c2, c3 = st.columns(3)
 s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
@@ -42,7 +42,7 @@ s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key=
 recorder = c5.text_input("ลงชื่อผู้กรอก", key="recorder")
 origin_main = c6.selectbox("ประเทศแหล่งปลูกหลัก", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
 
-# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (ระบบ Lock ข้อมูล) ---
+# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (ข้อมูลไม่หายด้วย Session State) ---
 if 'items_count' not in st.session_state:
     st.session_state.items_count = 1
 
@@ -50,9 +50,6 @@ def add_item():
     st.session_state.items_count += 1
 
 st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ")
-
-# เก็บข้อมูลเพื่อนำไปสร้าง PDF
-final_items = []
 
 for i in range(st.session_state.items_count):
     with st.container():
@@ -65,12 +62,12 @@ for i in range(st.session_state.items_count):
             st.rerun()
 
         r1, r2, r3 = st.columns([2, 1, 1])
-        mat = r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
-        code = r2.text_input("Code", key=f"code_{i}")
-        qty = r3.number_input("จำนวน (KG)", key=f"qty_{i}")
+        r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
+        r2.text_input("Code", key=f"code_{i}")
+        r3.number_input("จำนวน (KG)", key=f"qty_{i}", min_value=0.0)
 
-        # ที่อยู่แหล่งปลูก (Dropdown จังหวัด/อำเภอ/ตำบล)
-        p, a, t = "", "", ""
+        # จัดการที่อยู่ (Lock ข้อมูลอัตโนมัติ)
+        st.markdown(f"📍 **ที่อยู่แหล่งปลูก ({origin_main})**")
         if origin_main == "ประเทศไทย" and not df_addr.empty:
             a1, a2, a3 = st.columns(3)
             p = a1.selectbox("จังหวัด", ["- เลือก -"] + sorted(df_addr["จังหวัด"].unique().tolist()), key=f"p_{i}")
@@ -78,62 +75,59 @@ for i in range(st.session_state.items_count):
             t = a3.selectbox("ตำบล", ["- เลือก -"] + sorted(df_addr[(df_addr["จังหวัด"] == p) & (df_addr["อำเภอ"] == a)]["ตำบล"].unique().tolist()) if a != "- เลือก -" else [], key=f"t_{i}")
         else:
             a1, a2, a3 = st.columns(3)
-            p = a1.text_input("จังหวัด/มณฑล", key=f"p_man_{i}")
-            a = a2.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
-            t = a3.text_input("ตำบล/แขวง", key=f"t_man_{i}")
+            a1.text_input("จังหวัด/มณฑล", key=f"p_man_{i}")
+            a2.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
+            a3.text_input("ตำบล/แขวง", key=f"t_man_{i}")
 
-        # ลักษณะการปลูก
         r4c1, r4c2, r4c3 = st.columns(3)
-        style = r4c1.selectbox("ลักษณะการปลูก", ["ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
-        loc = r4c2.selectbox("ลักษณะสถานที่ปลูก", ["โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
-        breed = r4c3.text_input("สายพันธุ์", key=f"breed_{i}")
-        
-        final_items.append({"mat": mat, "qty": qty, "p": p, "a": a, "t": t, "style": style})
+        r4c1.selectbox("ลักษณะการปลูก", ["ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
+        r4c2.selectbox("ลักษณะสถานที่ปลูก", ["โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
+        r4c3.text_input("สายพันธุ์", key=f"breed_{i}")
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
 
-# --- 6. ฟังก์ชันสร้าง PDF (รองรับภาษาไทย) ---
+# --- 6. ฟังก์ชันสร้าง PDF (ใช้ Sarabun-Regular.ttf) ---
 def generate_pdf():
-    # ตรวจสอบชื่อไฟล์ฟอนต์ให้ตรงกับที่คุณมี (เช่น 'THSarabunNew.ttf')
-    font_path = "THSarabunNew.ttf" 
-    
     pdf = FPDF()
     pdf.add_page()
     
+    font_path = "Sarabun-Regular.ttf" # ชื่อไฟล์ตามที่คุณแจ้ง
+    
     if os.path.exists(font_path):
-        pdf.add_font('THSarabun', '', font_path)
-        pdf.set_font('THSarabun', '', 16)
+        pdf.add_font('Sarabun', '', font_path)
+        pdf.set_font('Sarabun', '', 16)
     else:
-        # ถ้าหาไฟล์ฟอนต์ไม่เจอ จะแจ้งเตือน (แต่ PDF จะยังเป็นภาษาต่างดาว)
-        st.warning("⚠️ ไม่พบไฟล์ฟอนต์ THSarabunNew.ttf ในโฟลเดอร์")
+        st.error(f"❌ ไม่พบไฟล์ฟอนต์ {font_path} ในระบบ กรุณาตรวจสอบชื่อไฟล์")
         pdf.set_font('Arial', '', 12)
 
-    pdf.cell(200, 10, txt="บันทึกข้อมูลผู้ส่งมอบวัตถุดิบ (CPRAM)", ln=True, align='C')
+    # เขียนเนื้อหาภาษาไทย
+    pdf.cell(200, 10, txt="แบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ (CPRAM)", ln=True, align='C')
     pdf.ln(10)
-    pdf.cell(200, 10, txt=f"ผู้ส่งมอบ: {s_name}", ln=True)
-    pdf.cell(200, 10, txt=f"วันที่: {s_date} | ผู้บันทึก: {recorder}", ln=True)
+    pdf.cell(200, 10, txt=f"ผู้ส่งมอบ: {st.session_state.s_name}", ln=True)
+    pdf.cell(200, 10, txt=f"วันที่ส่ง: {st.session_state.s_date} | ผู้กรอก: {st.session_state.recorder}", ln=True)
     pdf.ln(5)
-    pdf.cell(200, 10, txt="รายการวัตถุดิบ:", ln=True)
     
-    for idx, item in enumerate(final_items):
-        txt = f"{idx+1}. {item['mat']} จำนวน {item['qty']} KG (ที่อยู่: {item['p']} {item['a']} {item['t']})"
-        pdf.cell(200, 10, txt=txt, ln=True)
-    
+    for i in range(st.session_state.items_count):
+        mat = st.session_state.get(f"mat_{i}", "")
+        qty = st.session_state.get(f"qty_{i}", 0)
+        pdf.cell(200, 10, txt=f"รายการที่ {i+1}: {mat} จำนวน {qty} KG", ln=True)
+
     return pdf.output()
 
 # --- 7. ปุ่มยืนยันและดาวน์โหลด ---
 st.write("---")
-if st.button("✅ ยืนยันข้อมูลและสร้าง PDF", type="primary", use_container_width=True):
+if st.button("✅ ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
     if not s_name:
-        st.error("กรุณากรอกชื่อผู้ส่งมอบก่อนครับ")
+        st.error("กรุณากรอกชื่อผู้ส่งมอบ")
     else:
         try:
-            pdf_output = generate_pdf()
-            st.success("สร้างไฟล์ PDF สำเร็จ!")
+            pdf_data = generate_pdf()
+            st.success("สร้าง PDF สำเร็จ!")
             st.download_button(
-                label="📥 คลิกเพื่อดาวน์โหลด PDF",
-                data=bytes(pdf_output),
+                label="📥 ดาวน์โหลด PDF",
+                data=bytes(pdf_data),
                 file_name=f"CPRAM_{s_name}.pdf",
                 mime="application/pdf",
                 use_container_width=True
