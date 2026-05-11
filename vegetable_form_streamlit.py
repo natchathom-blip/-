@@ -3,19 +3,17 @@ import pandas as pd
 from datetime import datetime
 import os
 from fpdf import FPDF
-import base64
 
-# --- 1. ตั้งค่าหน้าจอ ---
+# --- 1. การตั้งค่าหน้าจอและสไตล์ ---
 st.set_page_config(page_title="CPRAM - Supplier Form", layout="wide")
 
-# --- 2. โหลดข้อมูลที่อยู่ (แก้ปัญหาไฟล์ไม่พบ) ---
+# --- 2. ฟังก์ชันโหลดข้อมูลที่อยู่ (กัน Error ไฟล์ไม่พบ) ---
 @st.cache_data
 def load_address_data():
-    # พยายามอ่านไฟล์ที่คุณอัปโหลดมา
-    target_file = 'thailand.xlsx - Sheet1.csv'
-    if os.path.exists(target_file):
+    file_path = 'thailand.xlsx - Sheet1.csv'
+    if os.path.exists(file_path):
         try:
-            df = pd.read_csv(target_file)
+            df = pd.read_csv(file_path)
             df.columns = [str(c).strip() for c in df.columns]
             return df
         except:
@@ -24,100 +22,107 @@ def load_address_data():
 
 df_addr = load_address_data()
 
-# --- 3. ฟังก์ชันสร้าง PDF (รองรับข้อมูลครบทุกส่วน) ---
-def create_pdf(s_data, items):
-    pdf = FPDF()
-    pdf.add_page()
-    # หมายเหตุ: ในสภาพแวดล้อมทั่วไปต้องโหลด Font ภาษาไทย (.ttf) เพื่อให้แสดงภาษาไทยใน PDF ได้
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt="CPRAM - Supplier Delivery Record", ln=True, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.ln(10)
-    
-    # ส่วนที่ 1
-    pdf.cell(200, 10, txt=f"Supplier: {s_data['name']}", ln=True)
-    pdf.cell(200, 10, txt=f"Date: {s_data['date']} | Time: {s_data['time']}", ln=True)
-    pdf.cell(200, 10, txt=f"Recorder: {s_data['recorder']}", ln=True)
-    pdf.ln(5)
-    
-    # ส่วนที่ 2
-    pdf.cell(200, 10, txt="Material Details:", ln=True)
-    for idx, item in enumerate(items):
-        pdf.cell(200, 10, txt=f"{idx+1}. {item['mat']} - Qty: {item['qty']} KG", ln=True)
-        pdf.cell(200, 10, txt=f"   Location: {item['province']}, {item['dist']}", ln=True)
-    
-    return pdf.output(dest='S').encode('latin-1', errors='ignore')
-
-# --- 4. ส่วนแสดงผล UI (Header) ---
+# --- 3. ส่วนหัว (Header) ---
 st.markdown("""
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #2e7d32; padding-bottom: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
         <div style="background-color: #2e7d32; color: white; padding: 10px 20px; border-radius: 5px; font-weight: bold; font-size: 26px;">cpram</div>
-        <div style="text-align: right;"><b>FR-QAS-10-000</b><br><small>Effective Date: 2026-05-08</small></div>
+        <div style="text-align: right;"><b>FR-QAS-10-000</b><br><small>มีผลใช้งาน: 2026-05-08</small></div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- 5. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (Lock Data ด้วย key) ---
-st.subheader("ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ")
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (Lock ข้อมูลด้วย session_state) ---
+st.markdown('<p style="color: #2e7d32; font-size: 20px; font-weight: bold;">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</p>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
 s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
 s_date = c2.date_input("วันที่ส่งวัตถุดิบ *", key="s_date")
-s_time = c3.text_input("เวลาส่ง (น.)", key="s_time")
+s_time = c3.text_input("เวลาส่ง (น.)", placeholder="เช่น 14:00", key="s_time")
 
 c4, c5, c6 = st.columns(3)
 s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="s_email")
 recorder = c5.text_input("ลงชื่อผู้กรอก", key="recorder")
-origin_main = c6.selectbox("ประเทศแหล่งปลูกหลัก", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
+origin_main = c6.selectbox("ประเทศแหล่งปลูกหลัก *", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
 
-# --- 6. ส่วนที่ 2 — รายการวัตถุดิบ ---
-if 'items_count' not in st.session_state: st.session_state.items_count = 1
-def add_item(): st.session_state.items_count += 1
+if origin_main == "อื่นๆ":
+    origin_other = st.text_input("ระบุชื่อประเทศ *", key="origin_other")
+else:
+    origin_other = ""
 
-st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ")
-items_data = []
+# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (ระบบ Lock ข้อมูลไม่ให้หาย) ---
+if 'items_count' not in st.session_state:
+    st.session_state.items_count = 1
+
+def add_item():
+    st.session_state.items_count += 1
+
+st.markdown('<p style="color: #2e7d32; font-size: 20px; font-weight: bold;">ส่วนที่ 2 — รายการวัตถุดิบ</p>', unsafe_allow_html=True)
 
 for i in range(st.session_state.items_count):
     with st.container():
-        st.markdown(f"📦 **รายการที่ {i+1}**")
-        r1, r2, r3 = st.columns([2, 1, 1])
-        mat = r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
-        code = r2.text_input("Code", key=f"code_{i}")
-        qty = r3.number_input("จำนวน (KG)", key=f"qty_{i}")
+        st.markdown(f'<div style="background-color: #f1f8e9; padding: 20px; border-radius: 10px; border: 1px solid #c8e6c9; margin-bottom: 15px;">', unsafe_allow_html=True)
+        
+        col_h, col_del = st.columns([0.8, 0.2])
+        col_h.subheader(f"รายการที่ {i+1}")
+        if st.session_state.items_count > 1 and col_del.button(f"✕ ลบรายการนี้", key=f"del_{i}"):
+            st.session_state.items_count -= 1
+            st.rerun()
 
-        # Dropdown ที่อยู่ (แสดงเมื่อเป็นประเทศไทย)
-        p, a, t = "", "", ""
+        # แถวข้อมูลวัตถุดิบ (ข้อมูลจะไม่หายเพราะมี key เฉพาะตัว)
+        r1, r2, r3 = st.columns([2, 1, 1])
+        r1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
+        r2.text_input("Code", key=f"code_{i}")
+        r3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_{i}")
+
+        # ที่อยู่แหล่งปลูก (Dropdown จะแสดงผลเฉพาะ "ประเทศไทย")
+        st.markdown(f"📍 **ที่อยู่แหล่งปลูก ({origin_main})**")
         if origin_main == "ประเทศไทย" and not df_addr.empty:
             a1, a2, a3 = st.columns(3)
-            p = a1.selectbox("จังหวัด", ["- เลือก -"] + sorted(df_addr["จังหวัด"].unique()), key=f"p_{i}")
-            a = a2.selectbox("อำเภอ", ["- เลือก -"] + sorted(df_addr[df_addr["จังหวัด"]==p]["อำเภอ"].unique()) if p != "- เลือก -" else [], key=f"a_{i}")
-            t = a3.selectbox("ตำบล", ["- เลือก -"] + sorted(df_addr[(df_addr["จังหวัด"]==p) & (df_addr["อำเภอ"]==a)]["ตำบล"].unique()) if a != "- เลือก -" else [], key=f"t_{i}")
-        
-        # ลักษณะการปลูก
-        r4c1, r4c2 = st.columns(2)
-        style = r4c1.selectbox("ลักษณะการปลูก", ["ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
-        loc = r4c2.selectbox("ลักษณะสถานที่ปลูก", ["โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
-        
-        items_data.append({"mat": mat, "qty": qty, "province": p, "dist": a})
-        st.markdown("---")
+            p_list = sorted(df_addr["จังหวัด"].unique())
+            sel_p = a1.selectbox("จังหวัด", ["- เลือก -"] + p_list, key=f"p_{i}")
+            
+            amp_opts = sorted(df_addr[df_addr["จังหวัด"] == sel_p]["อำเภอ"].unique()) if sel_p != "- เลือก -" else []
+            sel_a = a2.selectbox("อำเภอ", ["- เลือก -"] + amp_opts, key=f"a_{i}")
+            
+            tam_opts = sorted(df_addr[(df_addr["จังหวัด"] == sel_p) & (df_addr["อำเภอ"] == sel_a)]["ตำบล"].unique()) if sel_a != "- เลือก -" else []
+            sel_t = a3.selectbox("ตำบล", ["- เลือก -"] + tam_opts, key=f"t_{i}")
+        else:
+            a1, a2, a3 = st.columns(3)
+            a1.text_input("จังหวัด/มณฑล", key=f"p_man_{i}")
+            a2.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
+            a3.text_input("ตำบล/แขวง", key=f"t_man_{i}")
 
-st.button("+ เพิ่มรายการ", on_click=add_item)
+        # ลักษณะการปลูก (Dropdown ตามสั่ง)
+        r4c1, r4c2, r4c3 = st.columns(3)
+        r4c1.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
+        r4c2.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
+        r4c3.text_input("สายพันธุ์", key=f"breed_{i}")
 
-# --- 7. ปุ่มยืนยันและดาวน์โหลด ---
-if st.button("✅ ยืนยันข้อมูลและสร้าง PDF", type="primary"):
+        st.markdown('</div>', unsafe_allow_html=True)
+
+st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
+
+# --- 6. ระบบสร้าง PDF และดาวน์โหลด (โหลดได้จริง) ---
+st.write("---")
+if st.button("✅ ยืนยันข้อมูลและรับ PDF", type="primary", use_container_width=True):
     if not s_name or not s_email:
-        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมล")
+        st.error("กรุณากรอกข้อมูลชื่อผู้ส่งมอบและอีเมลให้ครบถ้วนก่อน")
     else:
-        # 1. สร้าง PDF
-        s_info = {"name": s_name, "date": str(s_date), "time": s_time, "recorder": recorder}
-        pdf_content = create_pdf(s_info, items_data)
+        # สร้าง PDF แบบง่าย (จำลองภาษาไทยด้วยการไม่ใช้ตัวอักษรพิเศษถ้ายังไม่มี Font)
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, txt="CPRAM - Supplier Form", ln=True, align='C')
+        pdf.ln(10)
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=f"Supplier Name: {s_name}", ln=True)
+        pdf.cell(200, 10, txt=f"Date: {s_date}", ln=True)
         
-        # 2. แสดงปุ่มดาวน์โหลด (นี่คือส่วนที่ทำให้โหลดไฟล์ได้)
-        st.success(f"สร้างไฟล์ PDF สำเร็จ! ระบบกำลังเตรียมส่งไปที่ {s_email}")
+        pdf_bytes = pdf.output(dest='S').encode('latin-1', errors='ignore')
+        
+        st.success("สร้างข้อมูลเรียบร้อย! กรุณากดปุ่มด้านล่างเพื่อดาวน์โหลด")
         st.download_button(
-            label="📥 คลิกที่นี่เพื่อดาวน์โหลด PDF",
-            data=pdf_content,
-            file_name=f"CPRAM_{s_name}_{datetime.now().strftime('%d%m%Y')}.pdf",
-            mime="application/pdf"
+            label="📥 ดาวน์โหลดไฟล์ PDF ของคุณที่นี่",
+            data=pdf_bytes,
+            file_name=f"CPRAM_Form_{s_name}.pdf",
+            mime="application/pdf",
+            use_container_width=True
         )
-        
-        # 3. หมายเหตุเรื่องอีเมล
-        st.info("ℹ️ สำหรับการส่งเมลอัตโนมัติ: ระบบต้องเชื่อมต่อกับ SMTP Server (เช่น Gmail หรือ Outlook) ซึ่งต้องใช้รหัสผ่านแอปของคุณเพื่อความปลอดภัย")
