@@ -136,7 +136,7 @@ for index, i in enumerate(st.session_state.item_ids):
         f1.text_input("รหัสไปรษณีย์", value=zip_auto, key=f"zip_{i}")
         f2.text_input("สายพันธุ์", key=f"breed_{i}")
         f3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
-        f4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"place_{i}")
+        f4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "ระบบเปิด", "ระบบปิด"], key=f"place_{i}")
         st.markdown("<hr style='border: 1px dashed #2e7d32;'>", unsafe_allow_html=True)
 
 # --- 5. ปุ่มเพิ่มรายการและบันทึก ---
