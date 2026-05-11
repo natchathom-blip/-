@@ -47,7 +47,7 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (ตัวแปรหลัก) ---
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ (ใช้ Key เพื่อ Lock ข้อมูล) ---
 st.markdown('<div class="section-header">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</div>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
 s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
@@ -57,14 +57,14 @@ s_time = c3.text_input("เวลาส่ง (น.)", placeholder="เช่น
 c4, c5, c6 = st.columns(3)
 s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="s_email")
 recorder = c5.text_input("ลงชื่อผู้กรอก", key="recorder")
-# ประเทศหลักใช้ตัวแปรนี้ Lock ไว้
 origin_main = c6.selectbox("ประเทศแหล่งปลูกหลัก *", ["ประเทศไทย", "จีน", "อื่นๆ"], key="origin_main")
+
 if origin_main == "อื่นๆ":
     origin_other = st.text_input("ระบุชื่อประเทศ *", key="origin_other")
 else:
     origin_other = ""
 
-# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (Lock ข้อมูลด้วย Session State) ---
+# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (ระบบ Lock ข้อมูลด้วย Session State) ---
 if 'items_count' not in st.session_state:
     st.session_state.items_count = 1
 
@@ -77,7 +77,7 @@ for i in range(st.session_state.items_count):
     st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
     
     col_h, col_del = st.columns([0.8, 0.2])
-    col_h.subheader(f"รายการที่ {i+1} (แหล่งปลูก: {origin_main if origin_main != 'อื่นๆ' else origin_other})")
+    col_h.subheader(f"รายการที่ {i+1}")
     
     if st.session_state.items_count > 1 and col_del.button(f"✕ ลบรายการนี้", key=f"del_{i}"):
         st.session_state.items_count -= 1
@@ -107,11 +107,10 @@ for i in range(st.session_state.items_count):
     r4c2.text_input("ที่อยู่เลขที่", key=f"addr_no_{i}")
     r4c3.text_input("หมู่ที่", key=f"moo_{i}")
 
-    # แถวที่ 5: ที่อยู่ (ไม่มีช่องกรอกประเทศแล้ว)
-    st.markdown(f"📍 **ที่อยู่แหล่งปลูกใน {origin_main if origin_main != 'อื่นๆ' else origin_other}**")
+    # แถวที่ 5: ที่อยู่ (Lock ตามประเทศที่เลือกในส่วนที่ 1)
+    st.markdown(f"📍 **ที่อยู่แหล่งปลูก ({origin_main if origin_main != 'อื่นๆ' else origin_other})**")
     a2, a3, a4 = st.columns(3)
     
-    # ดึง Dropdown เฉพาะกรณีเป็นประเทศไทย
     if origin_main == "ประเทศไทย" and not df_addr.empty:
         p_list = sorted(df_addr["จังหวัด"].unique())
         sel_p = a2.selectbox("จังหวัด", ["- เลือก -"] + p_list, key=f"p_{i}")
@@ -122,26 +121,32 @@ for i in range(st.session_state.items_count):
         tam_opts = sorted(df_addr[(df_addr["จังหวัด"] == sel_p) & (df_addr["อำเภอ"] == sel_a)]["ตำบล"].unique()) if sel_a != "- เลือก -" else []
         sel_t = a4.selectbox("ตำบล", ["- เลือก -"] + tam_opts, key=f"t_{i}")
     else:
-        # ถ้าเป็น จีน หรือ อื่นๆ ให้กรอก จังหวัด/เมือง เอง
         a2.text_input("จังหวัด/มณฑล", key=f"p_man_{i}")
         a3.text_input("อำเภอ/เมือง", key=f"a_man_{i}")
         a4.text_input("ตำบล/แขวง", key=f"t_man_{i}")
 
-    # แถวที่ 6
+    # แถวที่ 6: Dropdown ลักษณะการปลูก และ สถานที่ปลูก (อัปเดตตัวเลือกใหม่)
     r5c1, r5c2, r5c3, r5c4 = st.columns(4)
     r5c1.text_input("รหัสไปรษณีย์", key=f"z_{i}")
     r5c2.text_input("สายพันธุ์", key=f"breed_{i}")
-    r5c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกดินยกพื้น", "ไฮโดรโปนิกส์"], key=f"style_{i}")
-    r5c4.selectbox("ลักษณะสถานที่", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
+    
+    # อัปเดตตัวเลือกตามที่คุณต้องการ
+    r5c3.selectbox("ลักษณะการปลูก", 
+                   ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], 
+                   key=f"style_{i}")
+    
+    r5c4.selectbox("ลักษณะสถานที่ปลูก", 
+                   ["- เลือก -", "โรงเรือน", "แปลงเปิด"], 
+                   key=f"loc_{i}")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item)
 
-# --- 6. ยืนยันข้อมูล ---
+# --- 6. ปุ่มยืนยัน ---
 st.write("---")
-if st.button("ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
-    if not s_name or not s_email:
-        st.error("กรุณากรอกข้อมูลส่วนที่ 1 ให้ครบถ้วน")
+if st.button("✅ ยืนยันข้อมูลและดาวน์โหลด PDF", type="primary", use_container_width=True):
+    if not s_name:
+        st.error("กรุณากรอกชื่อผู้ส่งมอบ")
     else:
-        st.success("บันทึกข้อมูลเรียบร้อยแล้ว ข้อมูลทั้งหมดถูก Lock ไว้ในระบบ")
+        st.success("บันทึกข้อมูลเรียบร้อย ข้อมูลทั้งหมดถูก Lock ไว้ด้วยระบบ Session State")
