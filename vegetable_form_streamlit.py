@@ -34,24 +34,27 @@ if 'next_id' not in st.session_state:
     st.session_state.next_id = 1
 
 # --- 3. ส่วนหัว (Header) แก้ไข NameError โดยประกาศ logo_base64 ก่อนเรียกใช้ ---
-logo_base64 = get_image_base64("image_9482bc.png") #
+# --- 3. ส่วนหัว (Header) แบบใหม่ตาม image_891df3.png ---
+logo_base64 = get_image_base64("image_9482bc.png") 
 
 header_html = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
         <div style="display: flex; align-items: center;">
-            {f'<img src="data:image/png;base64,{logo_base64}" width="140">' if logo_base64 else ''}
+            {f'<img src="data:image/png;base64,{logo_base64}" width="120">' if logo_base64 else ''}
             <div style="margin-left: 15px;">
-                <b style="font-size: 22px; color: #2e7d32; line-height: 1;">CPRAM Co., Ltd.</b><br>
-                <span style="font-size: 16px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
+                <b style="font-size: 20px; color: #2e7d32; line-height: 1.2;">CPRAM Co., Ltd.</b><br>
+                <span style="font-size: 14px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
             </div>
         </div>
-        <div style="text-align: right; line-height: 1.2;">
-            <b style="font-size: 18px; color: #333;">FR-QAS-10-000</b><br>
-            <span style="font-size: 14px; color: #666;">มีผลใช้งาน: 2026-05-08</span>
+        
+        <div style="text-align: right;">
+            <div style="border: 1.5px solid #333; padding: 5px 15px; display: inline-block; font-weight: bold; font-size: 18px; letter-spacing: 1px;">
+                FR-QAS-10-000
+            </div>
         </div>
     </div>
 """
-st.markdown(header_html, unsafe_allow_html=True) #
+st.markdown(header_html, unsafe_allow_html=True)
 
 st.markdown("<h3 style='text-align: center; color: #2e7d32;'>แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>", unsafe_allow_html=True) #
 st.markdown("<p style='text-align: center; color: #666;'>กรุณากรอกข้อมูลให้ครบถ้วน — เลือก จังหวัด/อำเภอ/ตำบล จาก dropdown ระบบจะกรอกรหัสไปรษณีย์ให้อัตโนมัติ</p>", unsafe_allow_html=True) #
