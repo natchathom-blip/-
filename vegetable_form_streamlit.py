@@ -34,6 +34,7 @@ if 'next_id' not in st.session_state:
     st.session_state.next_id = 1
 
 # --- 3. ส่วนหัว (Header) แบบใหม่: มีกรอบ และไม่มีวันที่ใช้งาน ---
+# --- 3. ส่วนหัว (Header) แก้ไขตามรูปแบบที่คุณส่งมาล่าสุด ---
 logo_base64 = get_image_base64("image_9482bc.png") 
 
 header_html = f"""
@@ -45,13 +46,16 @@ header_html = f"""
                 <span style="font-size: 14px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
             </div>
         </div>
-        
+
         <div style="text-align: right;">
             <div style="border: 1.5px solid #333; padding: 5px 15px; display: inline-block; font-weight: bold; font-size: 18px; letter-spacing: 1px;">
                 FR-QAS-10-000
             </div>
         </div>
     </div>
+"""
+
+st.markdown(header_html, unsafe_allow_html=True)
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
