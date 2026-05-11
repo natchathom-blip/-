@@ -33,8 +33,7 @@ if 'item_ids' not in st.session_state:
 if 'next_id' not in st.session_state:
     st.session_state.next_id = 1
 
-# --- 3. ส่วนหัว (Header) แก้ไข NameError โดยประกาศ logo_base64 ก่อนเรียกใช้ ---
-# --- 3. ส่วนหัว (Header) แบบใหม่ตาม image_891df3.png ---
+# --- 3. ส่วนหัว (Header) แก้ไขตามรูปแบบ image_891df3.png ---
 logo_base64 = get_image_base64("image_9482bc.png") 
 
 header_html = f"""
@@ -46,13 +45,14 @@ header_html = f"""
                 <span style="font-size: 14px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
             </div>
         </div>
-        
         <div style="text-align: right;">
             <div style="border: 1.5px solid #333; padding: 5px 15px; display: inline-block; font-weight: bold; font-size: 18px; letter-spacing: 1px;">
                 FR-QAS-10-000
             </div>
         </div>
     </div>
+"""
+st.markdown(header_html, unsafe_allow_html=True)
 """
 st.markdown(header_html, unsafe_allow_html=True)
 
