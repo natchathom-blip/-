@@ -7,7 +7,7 @@ from datetime import datetime
 # --- 1. ตั้งค่าหน้าจอ ---
 st.set_page_config(page_title="CPRAM Digital Form", layout="wide")
 
-# --- 2. ฟังก์ชันช่วยจัดการรูปภาพ (ต้องอยู่ก่อนการเรียกใช้ header_html) ---
+# --- 2. ฟังก์ชันช่วยจัดการรูปภาพ ---
 def get_image_base64(path):
     if os.path.exists(path):
         with open(path, "rb") as img_file:
@@ -33,7 +33,7 @@ if 'item_ids' not in st.session_state:
 if 'next_id' not in st.session_state:
     st.session_state.next_id = 1
 
-# --- 3. ส่วนหัว (Header) แก้ไขตามรูปแบบ image_891df3.png ---
+# --- 3. ส่วนหัว (Header) แบบใหม่: มีกรอบ และไม่มีวันที่ใช้งาน ---
 logo_base64 = get_image_base64("image_9482bc.png") 
 
 header_html = f"""
@@ -45,6 +45,7 @@ header_html = f"""
                 <span style="font-size: 14px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
             </div>
         </div>
+        
         <div style="text-align: right;">
             <div style="border: 1.5px solid #333; padding: 5px 15px; display: inline-block; font-weight: bold; font-size: 18px; letter-spacing: 1px;">
                 FR-QAS-10-000
@@ -53,11 +54,10 @@ header_html = f"""
     </div>
 """
 st.markdown(header_html, unsafe_allow_html=True)
-"""
-st.markdown(header_html, unsafe_allow_html=True)
 
-st.markdown("<h3 style='text-align: center; color: #2e7d32;'>แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>", unsafe_allow_html=True) #
-st.markdown("<p style='text-align: center; color: #666;'>กรุณากรอกข้อมูลให้ครบถ้วน — เลือก จังหวัด/อำเภอ/ตำบล จาก dropdown ระบบจะกรอกรหัสไปรษณีย์ให้อัตโนมัติ</p>", unsafe_allow_html=True) #
+# ชื่อแบบสอบถาม
+st.markdown("<h3 style='text-align: center; color: #2e7d32;'>แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>กรุณากรอกข้อมูลให้ครบถ้วน — เลือก จังหวัด/อำเภอ/ตำบล จาก dropdown ระบบจะกรอกรหัสไปรษณีย์ให้อัตโนมัติ</p>", unsafe_allow_html=True)
 
 # --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ ---
 st.markdown("#### <span style='color: #2e7d32;'>ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</span>", unsafe_allow_html=True)
@@ -87,16 +87,16 @@ for index, i in enumerate(st.session_state.item_ids):
         # รายละเอียดข้อมูลวัตถุดิบ
         r1, r2, r3 = st.columns([2, 1, 1])
         r1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-        r2.text_input("Code", key=f"code_{i}")
+        r2.text_input("Code", key=f"code_{i}", placeholder="เช่น 71000277")
         r3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_{i}")
 
         r4, r5, r6 = st.columns(3)
         r4.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-        r5.text_input("เวลาเก็บเกี่ยว", key=f"ht_{i}")
+        r5.text_input("เวลาเก็บเกี่ยว", key=f"ht_{i}", placeholder="เช่น 08:00")
         r6.date_input("วันที่ล้างทำความสะอาด", key=f"cd_{i}")
 
         r7, r8, r9 = st.columns(3)
-        r7.text_input("เวลาที่ล้างทำความสะอาด", key=f"ct_{i}")
+        r7.text_input("เวลาที่ล้างทำความสะอาด", key=f"ct_{i}", placeholder="เช่น 08:00 หรือ 08:00-09:30")
         r8.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
         r9.text_input("เลขที่ GAP", key=f"gap_{i}")
 
@@ -133,12 +133,12 @@ for index, i in enumerate(st.session_state.item_ids):
             a3.text_input("อำเภอ/เมือง", key=f"d_m_{i}")
             a4.text_input("ตำบล/เขต", key=f"t_m_{i}")
 
-        # แก้ไขจุดที่ 2: เปลี่ยนเป็น ระบบเปิด / ระบบปิด
+        # ส่วนท้ายของรายการวัตถุดิบ
         f1, f2, f3, f4 = st.columns(4)
         f1.text_input("รหัสไปรษณีย์", value=zip_auto, key=f"zip_{i}")
         f2.text_input("สายพันธุ์", key=f"breed_{i}")
         f3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
-        f4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "ระบบเปิด", "ระบบปิด"], key=f"place_{i}") # แก้ไขตรงนี้
+        f4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "ระบบเปิด", "ระบบปิด"], key=f"place_{i}") 
         st.markdown("<hr style='border: 1px dashed #2e7d32;'>", unsafe_allow_html=True)
 
 # --- 6. ปุ่มดำเนินการ ---
