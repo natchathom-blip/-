@@ -1,111 +1,120 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import io
+from datetime import datetime, time
 
-# --- ตั้งค่าหน้ากระดาษและดีไซน์ ---
-st.set_page_config(page_title="CPRAM Supplier Daily Record", layout="wide")
+# --- 1. ตั้งค่าหน้าจอและดีไซน์ ---
+st.set_page_config(page_title="CPRAM Supplier Form", layout="wide")
 
 st.markdown("""
     <style>
-    .section-header { 
-        color: #2e7d32; font-size: 24px; font-weight: bold; 
-        margin-top: 20px; border-bottom: 2px solid #2e7d32; padding-bottom: 5px;
-    }
-    .item-box {
-        background-color: #f1f8e9; padding: 20px; border-radius: 10px;
-        border: 1px solid #c8e6c9; margin-bottom: 20px;
-    }
-    .cpram-logo {
-        text-align: center; color: #d32f2f; font-size: 45px; font-weight: bold; margin-bottom: 0px;
-    }
+    .section-header { color: #2e7d32; font-size: 22px; font-weight: bold; border-bottom: 2px solid #2e7d32; margin-bottom: 20px; }
+    .item-box { background-color: #f1f8e9; padding: 25px; border-radius: 10px; border: 1px solid #c8e6c9; margin-bottom: 20px; }
+    .cpram-logo { text-align: center; color: #d32f2f; font-size: 40px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- หัวข้อฟอร์ม ---
-st.markdown('<div class="cpram-logo">CPRAM</div>', unsafe_allow_html=True)
-st.markdown('<h3 style="text-align: center;">Supplier Daily Material Record Form</h3>', unsafe_allow_html=True)
-
-# --- จัดการ Session State เพื่อให้เพิ่ม/ลบรายการและแก้ไขได้ ---
+# --- 2. การจัดการ Session State (ป้องกัน Error บรรทัด 69) ---
 if 'items' not in st.session_state:
     st.session_state.items = [{"id": 0}]
 
-# --- ส่วนที่ 1: ข้อมูลผู้ส่งมอบ ---
+def add_item_callback():
+    st.session_state.items.append({"id": len(st.session_state.items)})
+
+def remove_item_callback(index):
+    if len(st.session_state.items) > 1:
+        st.session_state.items.pop(index)
+
+# --- 3. หัวฟอร์ม CPRAM ---
+st.markdown('<div class="cpram-logo">CPRAM</div>', unsafe_allow_html=True)
+st.markdown('<h3 style="text-align: center;">Supplier Daily Material Record Form</h3>', unsafe_allow_html=True)
+
+# --- 4. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ ---
 st.markdown('<div class="section-header">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
-with col1:
-    supplier_name = st.text_input("ผู้ส่งมอบ (Supplier) *")
-    supplier_email = st.text_input("อีเมลของผู้ส่งมอบ (สำหรับรับ PDF) *")
-with col2:
-    delivery_date = st.date_input("วันที่ส่งวัตถุดิบ *", datetime.now())
-    recorded_by = st.text_input("ลงชื่อผู้กรอก")
-with col3:
-    delivery_time = st.text_input("เวลาส่ง", placeholder="เช่น 14:00 น.")
-    origin_country = st.selectbox("ประเทศแหล่งปลูก (default)", ["ประเทศไทย", "อื่นๆ"])
 
-# --- ส่วนที่ 2: รายการวัตถุดิบ (เพิ่มได้ไม่จำกัด) ---
+with col1:
+    supplier_name = st.text_input("ผู้ส่งมอบ (Supplier) *", key="main_supplier")
+    delivery_date = st.date_input("วันที่ส่งวัตถุดิบ *", datetime.now(), key="main_date")
+
+with col2:
+    delivery_time = st.time_input("เวลาส่ง *", value=time(14, 0), key="main_time")
+    recorded_by = st.text_input("ลงชื่อผู้กรอก", key="main_recorder")
+
+with col3:
+    supplier_email = st.text_input("อีเมลของผู้ส่งมอบ (สำหรับรับ PDF) *", key="main_email")
+    
+    # --- ปรับปรุงส่วนประเทศแหล่งปลูกตามสั่ง ---
+    origin_country = st.selectbox(
+        "ประเทศแหล่งปลูก (Country of Origin)", 
+        ["ประเทศไทย", "ประเทศจีน", "อื่นๆ (โปรดระบุ)"], 
+        index=0, 
+        key="main_country"
+    )
+    
+    # ถ้าเลือก "อื่นๆ (โปรดระบุ)" จะแสดงช่องให้กรอกเอง
+    final_country = origin_country
+    if origin_country == "อื่นๆ (โปรดระบุ)":
+        final_country = st.text_input("ระบุชื่อประเทศ *", placeholder="กรุณากรอกชื่อประเทศ", key="custom_country")
+
+# --- 5. ส่วนที่ 2 — รายการวัตถุดิบ (เพิ่มได้ไม่จำกัด) ---
 st.markdown('<div class="section-header">ส่วนที่ 2 — รายการวัตถุดิบ (เพิ่มได้ไม่จำกัด)</div>', unsafe_allow_html=True)
 
-def remove_item(idx):
-    if len(st.session_state.items) > 1:
-        st.session_state.items.pop(idx)
+current_material_data = []
 
-item_results = []
-for i, item in enumerate(st.session_state.items):
-    with st.container():
-        st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
-        h_col1, h_col2 = st.columns([0.85, 0.15])
-        h_col1.subheader(f"รายการที่ {i+1}")
-        if h_col2.button(f"✕ ลบรายการที่ {i+1}", key=f"del_{i}"):
-            remove_item(i)
-            st.rerun()
+if "items" in st.session_state:
+    for i, item in enumerate(st.session_state.items):
+        with st.container():
+            st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
+            h_col1, h_col2 = st.columns([0.85, 0.15])
+            h_col1.subheader(f"รายการที่ {i+1}")
+            
+            # ปุ่มลบรายการ
+            h_col2.button(f"✕ ลบรายการที่ {i+1}", key=f"del_{i}", on_click=remove_item_callback, args=(i,))
 
-        # แถวที่ 1
-        r1c1, r1c2, r1c3 = st.columns(3)
-        mat_type = r1c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-        mat_code = r1c2.text_input("Code", placeholder="เช่น 71000277", key=f"code_{i}")
-        qty = r1c3.number_input("จำนวน (KG) *", min_value=0.0, key=f"qty_{i}")
+            # ฟิลด์ข้อมูลวัตถุดิบ
+            r1c1, r1c2, r1c3 = st.columns(3)
+            m_type = r1c1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_type_{i}")
+            m_code = r1c2.text_input("Code", key=f"mat_code_{i}")
+            m_qty = r1c3.text_input("จำนวน (KG) *", key=f"mat_qty_{i}")
 
-        # แถวที่ 2
-        r2c1, r2c2, r2c3 = st.columns(3)
-        h_date = r2c1.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-        h_time = r2c2.text_input("เวลาเก็บเกี่ยว", placeholder="เช่น 08:00", key=f"ht_{i}")
-        c_date = r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"cd_{i}")
+            r2c1, r2c2, r2c3 = st.columns(3)
+            h_d = r2c1.date_input("วันที่เก็บเกี่ยว", key=f"h_date_{i}")
+            h_t = r2c2.time_input("เวลาเก็บเกี่ยว", key=f"h_time_{i}")
+            c_d = r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"c_date_{i}")
 
-        # แถวที่ 3
-        r3c1, r3c2, r3c3 = st.columns(3)
-        c_time = r3c1.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00-09:30", key=f"ct_{i}")
-        grower = r3c2.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
-        gap = r3c3.text_input("เลขที่ GAP", key=f"gap_{i}")
+            r3c1, r3c2, r3c3 = st.columns(3)
+            c_t = r3c1.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00-09:30", key=f"c_time_{i}")
+            grower = r3c2.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
+            gap = r3c3.text_input("เลขที่ GAP", key=f"gap_{i}")
 
-        # แถวที่ 4 (ที่อยู่แหล่งปลูก)
-        st.markdown("**📍 ที่อยู่แหล่งปลูก (cascading dropdown)**")
-        r4c1, r4c2, r4c3, r4c4 = st.columns(4)
-        farm_id = r4c1.text_input("รหัสไร่", key=f"farm_{i}")
-        addr = r4c2.text_input("ที่อยู่เลขที่", key=f"addr_{i}")
-        moo = r4c3.text_input("หมู่ที่", key=f"moo_{i}")
-        prov = r4c4.selectbox("จังหวัด", ["- เลือก -", "กรุงเทพฯ", "นครปฐม", "ปทุมธานี"], key=f"prov_{i}")
+            st.markdown("📍 **ข้อมูลแหล่งปลูกและสายพันธุ์**")
+            r4c1, r4c2, r4c3, r4c4 = st.columns(4)
+            farm = r4c1.text_input("รหัสไร่", key=f"farm_{i}")
+            breed = r4c2.text_input("สายพันธุ์", key=f"breed_{i}")
+            style = r4c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ดิน", "ไฮโดรโปนิกส์"], key=f"style_{i}")
+            loc = r4c4.selectbox("สถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
 
-        # แถวที่ 5
-        r5c1, r5c2, r5c3, r5c4 = st.columns(4)
-        zipc = r5c1.text_input("รหัสไปรษณีย์", key=f"zip_{i}")
-        breed = r5c2.text_input("สายพันธุ์", key=f"breed_{i}")
-        p_style = r5c3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ดิน", "ไฮโดรโปนิกส์"], key=f"style_{i}")
-        p_loc = r5c4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "โรงเรือน", "แปลงเปิด"], key=f"loc_{i}")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        item_results.append({"Item": i+1, "Material": mat_type, "Qty": qty})
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            current_material_data.append({
+                "รายการ": i+1,
+                "ชนิดวัตถุดิบ": m_type,
+                "จำนวน": m_qty,
+                "ประเทศ": final_country # ดึงค่าประเทศจากส่วนที่ 1 มาใช้
+            })
 
-if st.button("+ เพิ่มรายการวัตถุดิบ"):
-    st.session_state.items.append({"id": len(st.session_state.items)})
-    st.rerun()
+# ปุ่มเพิ่มรายการ
+st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item_callback)
 
-# --- ปุ่มส่งข้อมูล ---
+# --- 6. สรุปและส่งข้อมูล ---
 st.write("---")
-if st.button("บันทึกข้อมูลและเตรียมส่ง PDF", type="primary"):
-    if not supplier_name or not supplier_email:
-        st.error("กรุณากรอกชื่อผู้ส่งมอบและอีเมลให้ครบถ้วน")
+if st.button("บันทึกและตรวจสอบข้อมูลเพื่อส่ง PDF", type="primary"):
+    if not supplier_name or not supplier_email or (origin_country == "อื่นๆ (โปรดระบุ)" and not final_country):
+        st.error("กรุณากรอกข้อมูลสำคัญ (ที่มี *) ให้ครบถ้วน")
     else:
-        st.success("บันทึกข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างก่อนยืนยันส่งอีเมล")
-        st.table(pd.DataFrame(item_results))
-        # ส่วนนี้คือจุดที่คุณจะเรียกฟังก์ชันส่ง Email และ PDF ต่อไป
+        st.success(f"บันทึกข้อมูลเรียบร้อย! ประเทศแหล่งปลูกคือ: {final_country}")
+        st.write("### ตารางสรุปรายการ")
+        st.table(pd.DataFrame(current_material_data))
+        
+        # ส่วนเตรียมส่ง PDF
+        st.info(f"ระบบพร้อมส่งไฟล์สรุปไปยังอีเมล: {supplier_email}")
