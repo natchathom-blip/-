@@ -33,7 +33,7 @@ if 'next_id' not in st.session_state:
     st.session_state.next_id = 1
 
 # --- 2. ส่วนหัว (Header) ตามมาตรฐาน FR-QAS ---
-logo_base64 = get_image_base64("image_9482bc.png") #
+# ค้นหาคำว่า header_html = f""" ไปจนถึงเครื่องหมาย """
 header_html = f"""
     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
         <div style="display: flex; align-items: center;">
