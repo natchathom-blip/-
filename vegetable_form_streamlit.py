@@ -72,7 +72,8 @@ def load_province_list():
     try:
         if os.path.exists(EXCEL_PATH):
             return pd.read_excel(EXCEL_PATH, sheet_name=0)
-    except: pass
+    except:
+        pass
     return None
 
 thailand_df = load_province_list()
@@ -118,35 +119,39 @@ def save_data_to_excel(submission):
                 try:
                     existing_df = pd.read_excel(EXCEL_PATH, sheet_name=SUBMISSION_SHEET)
                     final_df = pd.concat([existing_df, new_df], ignore_index=True)
-                except: final_df = new_df
+                except:
+                    final_df = new_df
                 final_df.to_excel(writer, sheet_name=SUBMISSION_SHEET, index=False)
         else:
             new_df.to_excel(EXCEL_PATH, sheet_name=SUBMISSION_SHEET, index=False)
-    except: pass
+    except:
+        pass
 
-# --- 5. Generate PDF ---
+# --- 5. Generate PDF (แก้ไขแล้ว) ---
 def draw_header(c, width, height):
     if os.path.exists(LOGO_PATH):
         logo_w, logo_h = 35*mm, 20*mm
         c.drawImage(LOGO_PATH, width - logo_w - 15*mm, height - logo_h - 8*mm,
                     width=logo_w, height=logo_h, preserveAspectRatio=True, mask="auto")
     c.setFillColor(colors.black)
-    c.setFont(THAI_FONT_BOLD, 16)
-    c.drawCentredString(width / 2, height - 30*mm,
+    c.setFont(THAI_FONT_BOLD, 14)
+    c.drawCentredString(width / 2, height - 28*mm,
                         "แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด")
 
 def build_pdf_bytes(submission):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
-    margin_l = 20*mm
-    margin_r = width - 20*mm
-    fs = 13
+    margin_l = 18*mm
+    margin_r = width - 18*mm
 
-    items           = submission.get("raw_materials", [])
-    delivery_date   = submission.get("delivery_date", "")
-    supplier_name   = submission.get("supplier_name", "")
-    supplier_address= submission.get("supplier_address", "")
+    # *** ลด font size เป็น 10 เพื่อป้องกันตัวอักษรชนกัน ***
+    fs = 10
+
+    items            = submission.get("raw_materials", [])
+    delivery_date    = submission.get("delivery_date", "")
+    supplier_name    = submission.get("supplier_name", "")
+    supplier_address = submission.get("supplier_address", "")
 
     def draw_line_only(x1, y, x2):
         c.setLineWidth(0.5)
@@ -167,17 +172,20 @@ def build_pdf_bytes(submission):
     def new_page():
         c.showPage()
         draw_header(c, width, height)
-        return height - 38*mm
+        return height - 36*mm
 
+    # *** row_supplier: ปรับระยะ offset ให้ label ไม่ทับ value ***
     def row_supplier(y):
         put_label("ผู้ส่งมอบ (Supplier)", margin_l, y)
-        put_value(supplier_name, margin_l + 48*mm, y, width/2 + 10*mm)
-        put_label("วันที่ส่งวัตถุดิบ", width/2 + 12*mm, y)
-        put_value(delivery_date, width/2 + 40*mm, y, margin_r)
-        return y - 12*mm
+        put_value(supplier_name, margin_l + 52*mm, y, width / 2 + 5*mm)
+        put_label("วันที่ส่งวัตถุดิบ", width / 2 + 8*mm, y)
+        put_value(delivery_date, width / 2 + 44*mm, y, margin_r)
+        return y - 14*mm
 
+    # *** row_material: เพิ่ม row spacing 10→12mm และปรับ x offset ทุกแถว ***
     def row_material(mat, seq, y):
-        if y < 70*mm:
+        # *** เพิ่ม threshold จาก 70→80 เพื่อขึ้นหน้าใหม่เร็วขึ้น ***
+        if y < 80*mm:
             y = new_page()
 
         m_type = mat.get("ชนิดวัตถุดิบที่ส่งมอบ", "")
@@ -192,61 +200,61 @@ def build_pdf_bytes(submission):
         p_time = str(mat.get("เวลาล้าง/ตัดแต่ง", ""))
         grower = mat.get("ชื่อผู้ปลูก", "")
         gap    = mat.get("เลขที่ GAP", "")
-        addr   = f"จ.{mat.get('จังหวัด','')}  อ.{mat.get('อำเภอ','')}  ต.{mat.get('ตำบล','')}  {supplier_address}"
+        addr   = f"จ.{mat.get('จังหวัด', '')}  อ.{mat.get('อำเภอ', '')}  ต.{mat.get('ตำบล', '')}  {supplier_address}"
 
-        # แถว: ลำดับ / ชนิดวัตถุดิบ / Code / จำนวน
+        # แถว 1: ลำดับ / ชนิดวัตถุดิบ / Code / จำนวน
         put_label(f"{seq}. ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM", margin_l, y)
-        put_value(m_type, margin_l + 68*mm, y, width/2 + 5*mm)
-        put_label("Code", width/2 + 7*mm, y)
-        put_value(m_code, width/2 + 19*mm, y, width/2 + 42*mm)
-        put_label("จำนวน", width/2 + 44*mm, y)
-        put_value(m_qty, width/2 + 57*mm, y, margin_r)
-        y -= 10*mm
+        put_value(m_type, margin_l + 72*mm, y, width / 2 + 5*mm)
+        put_label("Code", width / 2 + 7*mm, y)
+        put_value(m_code, width / 2 + 20*mm, y, width / 2 + 44*mm)
+        put_label("จำนวน", width / 2 + 46*mm, y)
+        put_value(m_qty, width / 2 + 58*mm, y, margin_r)
+        y -= 12*mm
 
-        # สายพันธุ์ / ลักษณะการปลูก / ระบบการปลูก
+        # แถว 2: สายพันธุ์ / ลักษณะการปลูก / ระบบการปลูก
         put_label("สายพันธุ์", margin_l, y)
-        put_value(m_var, margin_l + 20*mm, y, margin_l + 58*mm)
-        put_label("ลักษณะการปลูก", margin_l + 60*mm, y)
-        put_value(m_meth, margin_l + 88*mm, y, width/2 + 30*mm)
-        put_label("ระบบการปลูก", width/2 + 32*mm, y)
-        put_value(m_sys, width/2 + 56*mm, y, margin_r)
-        y -= 10*mm
+        put_value(m_var, margin_l + 22*mm, y, margin_l + 60*mm)
+        put_label("ลักษณะการปลูก", margin_l + 62*mm, y)
+        put_value(m_meth, margin_l + 92*mm, y, width / 2 + 28*mm)
+        put_label("ระบบการปลูก", width / 2 + 30*mm, y)
+        put_value(m_sys, width / 2 + 58*mm, y, margin_r)
+        y -= 12*mm
 
-        # วันที่เก็บเกี่ยว / เวลาเก็บเกี่ยว
+        # แถว 3: วันที่เก็บเกี่ยว / เวลาเก็บเกี่ยว
         put_label("วันที่เก็บเกี่ยววัตถุดิบ", margin_l, y)
-        put_value(h_date, margin_l + 48*mm, y, width/2 - 5*mm)
-        put_label("เวลาเก็บเกี่ยว", width/2 + 2*mm, y)
-        put_value(h_time, width/2 + 30*mm, y, margin_r)
-        y -= 10*mm
+        put_value(h_date, margin_l + 52*mm, y, width / 2 - 5*mm)
+        put_label("เวลาเก็บเกี่ยว", width / 2 + 2*mm, y)
+        put_value(h_time, width / 2 + 32*mm, y, margin_r)
+        y -= 12*mm
 
-        # วันที่ล้าง / เวลาล้าง
+        # แถว 4: วันที่ล้าง / เวลาล้าง
         put_label("วันที่ล้าง/ตัดแต่ง", margin_l, y)
-        put_value(p_date, margin_l + 40*mm, y, width/2 - 5*mm)
-        put_label("เวลาล้าง/ตัดแต่ง", width/2 + 2*mm, y)
-        put_value(p_time, width/2 + 32*mm, y, margin_r)
-        y -= 10*mm
+        put_value(p_date, margin_l + 44*mm, y, width / 2 - 5*mm)
+        put_label("เวลาล้าง/ตัดแต่ง", width / 2 + 2*mm, y)
+        put_value(p_time, width / 2 + 34*mm, y, margin_r)
+        y -= 12*mm
 
-        # ชื่อผู้ปลูก
+        # แถว 5: ชื่อผู้ปลูก
         put_label("ชื่อผู้ปลูก", margin_l, y)
-        put_value(grower, margin_l + 24*mm, y, width/2 - 5*mm)
-        y -= 10*mm
+        put_value(grower, margin_l + 26*mm, y, width / 2 - 5*mm)
+        y -= 12*mm
 
-        # เลขที่ GAP / รหัสไร่
+        # แถว 6: เลขที่ GAP / รหัสไร่
         put_label("เลขที่ GAP", margin_l, y)
-        put_value(gap, margin_l + 24*mm, y, width/2 - 5*mm)
-        put_label("รหัสไร่", width/2 + 2*mm, y)
-        put_value(mat.get("รหัสไร่", ""), width/2 + 18*mm, y, width/2 + 50*mm)
-        y -= 10*mm
+        put_value(gap, margin_l + 26*mm, y, width / 2 - 5*mm)
+        put_label("รหัสไร่", width / 2 + 2*mm, y)
+        put_value(mat.get("รหัสไร่", ""), width / 2 + 20*mm, y, width / 2 + 52*mm)
+        y -= 12*mm
 
-        # ที่อยู่
+        # แถว 7: ที่อยู่
         put_label("ที่อยู่", margin_l, y)
-        put_value(addr, margin_l + 14*mm, y, margin_r)
-        y -= 14*mm
+        put_value(addr, margin_l + 16*mm, y, margin_r)
+        y -= 16*mm
 
         return y
 
     def draw_signature(y):
-        sig_x = width/2 + 15*mm
+        sig_x = width / 2 + 15*mm
         put_label("ลงชื่อ", sig_x, y)
         draw_line_only(sig_x + 16*mm, y, margin_r)
         put_label("วันที่", sig_x, y - 8*mm)
@@ -254,7 +262,7 @@ def build_pdf_bytes(submission):
 
     # วาดหน้าแรก
     draw_header(c, width, height)
-    y = height - 38*mm
+    y = height - 36*mm
     y = row_supplier(y)
     y -= 4*mm
 
@@ -296,9 +304,9 @@ if mode == "👤 ผู้ส่งข้อมูล":
             with st.expander(f"📦 วัตถุดิบที่ {i}", expanded=True):
                 l1, l2 = st.columns(2)
                 with l1:
-                    m_type = st.text_input(f"ชนิดวัตถุดิบที่ส่งมอบ * (รายการที่ {i})", key=f"mt_{i}")
-                    m_qty  = st.number_input("จำนวน (กก.)", key=f"mq_{i}", min_value=0.0)
-                    m_var  = st.text_input("สายพันธุ์ *", key=f"mv_{i}")
+                    m_type   = st.text_input(f"ชนิดวัตถุดิบที่ส่งมอบ * (รายการที่ {i})", key=f"mt_{i}")
+                    m_qty    = st.number_input("จำนวน (กก.)", key=f"mq_{i}", min_value=0.0)
+                    m_var    = st.text_input("สายพันธุ์ *", key=f"mv_{i}")
                     m_method = st.radio("ลักษณะการปลูก *",
                                         ["ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ไฮโดรโปนิกส์"],
                                         key=f"meth_{i}")
@@ -330,12 +338,22 @@ if mode == "👤 ผู้ส่งข้อมูล":
                     sd = st.selectbox("ตำบล", ["-- เลือกตำบล --"] + s_list, key=f"sd_{i}")
 
                 raw_mats.append({
-                    "ลำดับที่": i, "ชนิดวัตถุดิบที่ส่งมอบ": m_type, "จำนวน": m_qty,
-                    "สายพันธุ์": m_var, "ลักษณะการปลูก": m_method, "ระบบการปลูก": m_sys,
-                    "วันที่เก็บเกี่ยว": h_date, "เวลาเก็บเกี่ยว": h_time,
-                    "วันที่ล้าง/ตัดแต่ง": p_date, "เวลาล้าง/ตัดแต่ง": p_time,
-                    "ชื่อผู้ปลูก": m_grower, "เลขที่ GAP": m_gap, "รหัสไร่": m_code,
-                    "จังหวัด": pv, "อำเภอ": dt, "ตำบล": sd
+                    "ลำดับที่": i,
+                    "ชนิดวัตถุดิบที่ส่งมอบ": m_type,
+                    "จำนวน": m_qty,
+                    "สายพันธุ์": m_var,
+                    "ลักษณะการปลูก": m_method,
+                    "ระบบการปลูก": m_sys,
+                    "วันที่เก็บเกี่ยว": h_date,
+                    "เวลาเก็บเกี่ยว": h_time,
+                    "วันที่ล้าง/ตัดแต่ง": p_date,
+                    "เวลาล้าง/ตัดแต่ง": p_time,
+                    "ชื่อผู้ปลูก": m_grower,
+                    "เลขที่ GAP": m_gap,
+                    "รหัสไร่": m_code,
+                    "จังหวัด": pv,
+                    "อำเภอ": dt,
+                    "ตำบล": sd
                 })
 
         # ปุ่มบันทึก
@@ -344,9 +362,12 @@ if mode == "👤 ผู้ส่งข้อมูล":
                 st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
             else:
                 submission = {
-                    "email": email, "supplier_name": supplier_name,
-                    "supplier_address": address, "delivery_date": str(d_date),
-                    "quantity_count": qty_count, "raw_materials": raw_mats
+                    "email": email,
+                    "supplier_name": supplier_name,
+                    "supplier_address": address,
+                    "delivery_date": str(d_date),
+                    "quantity_count": qty_count,
+                    "raw_materials": raw_mats
                 }
                 save_data_to_excel(submission)
                 if REPORTLAB_OK:
@@ -371,7 +392,7 @@ if mode == "👤 ผู้ส่งข้อมูล":
             st.markdown("---")
             st.subheader("🗂️ ข้อมูลที่บันทึก")
             all_df = pd.read_excel(EXCEL_PATH, sheet_name=SUBMISSION_SHEET)
-            my_df  = all_df[all_df["อีเมล"] == email]   # ← กรองเฉพาะอีเมลตัวเอง
+            my_df  = all_df[all_df["อีเมล"] == email]
             if not my_df.empty:
                 st.dataframe(my_df, use_container_width=True)
             else:
@@ -395,7 +416,6 @@ elif mode == "🔐 ผู้สร้าง":
         if st.button("ตกลง", use_container_width=True):
             if u_in in users_db and users_db[u_in] == p_in:
                 st.session_state.logged_in_user = u_in
-                # ถ้าเข้าด้วยรหัสกลาง → บังคับตั้งรหัสใหม่
                 if u_in == MASTER_USER and p_in == MASTER_PASS:
                     st.session_state.must_reset = True
                 else:
@@ -404,7 +424,7 @@ elif mode == "🔐 ผู้สร้าง":
             else:
                 st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
-    # ── บังคับตั้งรหัสใหม่ (เฉพาะคนที่เข้าด้วยรหัสกลาง) ──
+    # ── บังคับตั้งรหัสใหม่ ──
     elif st.session_state.must_reset:
         st.subheader("🔒 ตั้งรหัสผ่านส่วนตัวก่อนใช้งาน")
         st.info("คุณเข้าสู่ระบบด้วยรหัสกลาง กรุณาตั้งชื่อผู้ใช้และรหัสผ่านของตัวเองก่อน")
