@@ -2,35 +2,42 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime, time
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
 
-# --- 1. SETUP ---
-st.set_page_config(page_title="CPRAM Form", layout="wide")
+# --- 1. SETUP & DATA LOADING ---
+st.set_page_config(page_title="CPRAM - Supplier Form", layout="wide")
 
-# --- 2. INITIALIZE SESSION STATE (ล็อกข้อมูล) ---
-if 'items_count' not in st.session_state:
-    st.session_state.items_count = 1
-
-# ฟังก์ชันสำหรับเพิ่มรายการโดยไม่ล้างข้อมูลเดิม
-def add_item_callback():
-    st.session_state.items_count += 1
-
-# --- 3. LOAD ADDRESS DATA ---
 @st.cache_data
-def load_address():
+def load_thailand_data():
     try:
         df = pd.read_excel('thailand.xlsx')
         df.columns = [str(c).strip() for c in df.columns]
-        return df
+        # ค้นหาคอลัมน์ จังหวัด/อำเภอ/ตำบล อัตโนมัติ (ป้องกัน KeyError)
+        def find_col(keywords):
+            for k in keywords:
+                for col in df.columns:
+                    if k in col.lower() or k in col: return col
+            return None
+        
+        map_cols = {
+            'prov': find_col(['province', 'จังหวัด']),
+            'amp': find_col(['district_th', 'อำเภอ', 'district']),
+            'tam': find_col(['subdistrict', 'ตำบล']),
+            'zip': find_col(['postcode', 'รหัสไปรษณีย์', 'zip'])
+        }
+        return df, map_cols
     except:
-        return pd.DataFrame()
+        return pd.DataFrame(), {}
 
-df_addr = load_address()
+df_addr, col_map = load_thailand_data()
 
-# --- 4. HEADER UI ---
+# --- 2. SESSION STATE MANAGEMENT ---
+if 'items_count' not in st.session_state:
+    st.session_state.items_count = 1
+
+def add_item():
+    st.session_state.items_count += 1
+
+# --- 3. HEADER (ตาม FR-QAS-10-000) ---
 st.markdown(f"""
     <div style="display: flex; justify-content: space-between; border-bottom: 3px solid #2e7d32; padding-bottom: 10px;">
         <div style="display: flex; align-items: center;">
@@ -44,63 +51,59 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 5. FORM INPUTS ---
-# ส่วนที่ 1: ข้อมูลผู้ส่งมอบ (ใช้ key ทุุกช่องเพื่อล็อกข้อมูล)
+# --- 4. INPUT FORM ---
+# ส่วนที่ 1: ข้อมูลผู้ส่งมอบ (ล็อกด้วย key)
 st.subheader("ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ")
 c1, c2, c3 = st.columns(3)
-s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="lock_s_name")
-s_date = c2.date_input("วันที่ส่งวัตถุดิบ *", key="lock_s_date")
-s_time = c3.time_input("เวลาส่ง *", value=time(14, 0), key="lock_s_time")
+s_name = c1.text_input("ผู้ส่งมอบ (Supplier) *", key="s_name")
+s_date = c2.date_input("วันที่ส่งวัตถุดิบ *", key="s_date")
+s_time = c3.time_input("เวลาส่ง *", key="s_time")
 
 c4, c5, c6 = st.columns(3)
-s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="lock_s_email")
-recorder = c5.text_input("ลงชื่อผู้กรอก", key="lock_recorder")
-origin = c6.selectbox("ประเทศแหล่งปลูก", ["ประเทศไทย", "ประเทศจีน", "อื่นๆ"], key="lock_origin")
+s_email = c4.text_input("อีเมลสำหรับรับ PDF *", key="s_email")
+recorder = c5.text_input("ลงชื่อผู้กรอก", key="recorder")
+origin = c6.selectbox("ประเทศแหล่งปลูก", ["ประเทศไทย", "ประเทศจีน", "อื่นๆ"], key="origin")
 
 st.markdown("---")
-st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ")
+st.subheader("ส่วนที่ 2 — รายการวัตถุดิบ (รายละเอียดครบถ้วน)")
 
-items_data = []
+# วนลูปสร้างรายการวัตถุดิบ
 for i in range(st.session_state.items_count):
-    with st.expander(f"📦 รายการที่ {i+1}", expanded=True):
+    with st.expander(f"📦 รายการวัตถุดิบที่ {i+1}", expanded=True):
+        # แถวที่ 1: ข้อมูลพื้นฐาน
         r1c1, r1c2, r1c3 = st.columns([2, 1, 1])
-        mat = r1c1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
-        code = r1c2.text_input("Code", key=f"code_{i}")
-        qty = r1c3.number_input("จำนวน (KG)", key=f"qty_{i}")
+        r1c1.text_input("ชนิดวัตถุดิบ *", key=f"mat_{i}")
+        r1c2.text_input("Code (เช่น 721003)", key=f"code_{i}")
+        r1c3.number_input("จำนวน (KG)", key=f"qty_{i}")
 
+        # แถวที่ 2: วันเวลาเก็บเกี่ยวและล้าง
         r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-        h_date = r2c1.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-        h_time = r2c2.text_input("เวลาเก็บเกี่ยว", key=f"ht_{i}")
-        grower = r2c3.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
-        gap = r2c4.text_input("เลขที่ GAP", key=f"gap_{i}")
+        r2c1.date_input("วันที่เก็บเกี่ยว", key=f"h_date_{i}")
+        r2c2.text_input("เวลาเก็บเกี่ยว", key=f"h_time_{i}", placeholder="เช่น 08:00")
+        r2c3.date_input("วันที่ล้างทำความสะอาด", key=f"c_date_{i}")
+        r2c4.text_input("เวลาที่ล้าง", key=f"c_time_{i}", placeholder="เช่น 10:30")
 
-        # ส่วนที่อยู่ (ตำบล/อำเภอ/จังหวัด)
+        # แถวที่ 3: ข้อมูลผู้ปลูกและไร่
+        r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+        r3c1.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
+        r3c2.text_input("เลขที่ GAP", key=f"gap_{i}")
+        r3c3.text_input("รหัสไร่", key=f"farm_{i}")
+        r3c4.text_input("บ้านเลขที่/หมู่ที่", key=f"addr_no_{i}")
+
+        # แถวที่ 4: ที่อยู่ (จังหวัด/อำเภอ/ตำบล)
         a1, a2, a3, a4 = st.columns(4)
-        prov = a1.selectbox("จังหวัด", ["- เลือก -"] + sorted(df_addr['province_th'].unique().tolist()) if not df_addr.empty else [], key=f"p_{i}")
-        
-        amp_list = sorted(df_addr[df_addr['province_th'] == prov]['district_th'].unique().tolist()) if prov != "- เลือก -" else []
-        amp = a2.selectbox("อำเภอ", ["- เลือก -"] + amp_list, key=f"a_{i}")
-        
-        tam_list = sorted(df_addr[(df_addr['province_th'] == prov) & (df_addr['district_th'] == amp)]['subdistrict_th'].unique().tolist()) if amp != "- เลือก -" else []
-        tam = a3.selectbox("ตำบล/เขต", ["- เลือก -"] + tam_list, key=f"t_{i}")
-        
-        zip_code = ""
-        if tam != "- เลือก -":
-            zip_code = df_addr[(df_addr['province_th'] == prov) & (df_addr['district_th'] == amp) & (df_addr['subdistrict_th'] == tam)]['postcode'].iloc[0]
-        a4.text_input("รหัสไปรษณีย์", value=str(zip_code), key=f"z_{i}", disabled=True)
+        p_col, a_col, t_col, z_col = col_map.get('prov'), col_map.get('amp'), col_map.get('tam'), col_map.get('zip')
 
-        items_data.append({'mat': mat, 'code': code, 'qty': qty, 'tam': tam, 'amp': amp, 'prov': prov, 'zip': zip_code})
-
-# --- 6. ACTIONS ---
-st.button("+ เพิ่มรายการวัตถุดิบ", on_click=add_item_callback)
-
-if st.button("ยืนยันข้อมูลและส่ง PDF", type="primary"):
-    if not s_name or not s_email:
-        st.error("❌ ข้อมูลส่วนที่ 1 ไม่ครบถ้วน (ชื่อ หรือ อีเมล)")
-    else:
-        # 1. แสดงสถานะทันที
-        st.success(f"บันทึกข้อมูลเรียบร้อย! ระบบกำลังประมวลผล PDF ส่งไปยัง {s_email}")
-        
-        # 2. จำลองปุ่ม Download เพื่อให้ได้ไฟล์ทันที (กันเมลไม่เข้า)
-        # pdf_bytes = generate_pdf_logic(items_data) 
-        # st.download_button("ดาวน์โหลด PDF
+        if p_col and not df_addr.empty:
+            sel_p = a1.selectbox("จังหวัด", ["- เลือก -"] + sorted(df_addr[p_col].unique().tolist()), key=f"p_{i}")
+            
+            amp_list = sorted(df_addr[df_addr[p_col] == sel_p][a_col].unique().tolist()) if sel_p != "- เลือก -" else []
+            sel_a = a2.selectbox("อำเภอ/เมือง", ["- เลือก -"] + amp_list, key=f"a_{i}")
+            
+            tam_list = sorted(df_addr[(df_addr[p_col] == sel_p) & (df_addr[a_col] == sel_a)][t_col].unique().tolist()) if sel_a != "- เลือก -" else []
+            sel_t = a3.selectbox("ตำบล/เขต", ["- เลือก -"] + tam_list, key=f"t_{i}")
+            
+            zip_val = ""
+            if sel_t != "- เลือก -":
+                zip_val = df_addr[(df_addr[p_col] == sel_p) & (df_addr[a_col] == sel_a) & (df_addr[t_col] == sel_t)][z_col].iloc[0]
+            a4.text_input("รหัสไปรษณีย์", value=str(zip_val), key=f"z_{i}", disabled
