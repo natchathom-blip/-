@@ -1,152 +1,629 @@
 import streamlit as st
+import io, os, json, smtplib, copy
+from datetime import datetime, date
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.header import Header
+from email import encoders
+import openpyxl
 import pandas as pd
-import os
-import base64
-from datetime import datetime
-
-# --- 1. ตั้งค่าพื้นฐานและโหลดข้อมูล ---
-st.set_page_config(page_title="CPRAM Digital Form", layout="wide")
-
-def get_image_base64(path):
-    if os.path.exists(path):
-        with open(path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
-    return None
-
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from pypdf import PdfReader, PdfWriter
+from reportlab.lib.utils import simpleSplit
+# ── สำหรับเข้ารหัส Excel (ต้อง pip install msoffcrypto-tool) ───────────────────
+try:
+    import msoffcrypto
+    HAS_MSOFFCRYPTO = True
+except ImportError:
+    HAS_MSOFFCRYPTO = False
+# 🔐 รหัสผ่าน Excel — แก้ตรงนี้
+EXCEL_PASSWORD = "cpram2024"
+# 🔑 รหัสผ่านสำหรับเข้าหน้า "ผู้ดูแลระบบ" — แก้ตรงนี้
+ADMIN_PASSWORD = "admin123"
+# ══════════════════════════════════════════════════════════════════════════════
+# ⚙️  SMTP CONFIG — แก้ตรงนี้ครั้งเดียว แล้วผู้ใช้ไม่ต้องกรอกอีก
+# ══════════════════════════════════════════════════════════════════════════════
+DEFAULT_SMTP = {
+    "host":     "smtp.gmail.com",
+    "port":     465,
+    "user":     "natchathompad@gmail.com",
+    "password": "ngxzkqhlffghvvpv",
+}
+def get_smtp_config():
+    try:
+        return {
+            "host":     st.secrets["smtp"]["host"],
+            "port":     int(st.secrets["smtp"]["port"]),
+            "user":     st.secrets["smtp"]["user"],
+            "password": st.secrets["smtp"]["password"],
+        }
+    except (KeyError, FileNotFoundError, Exception):
+        return DEFAULT_SMTP
+# ─── page config ───────────────────────────────────────────────────────────────
+st.set_page_config(page_title="แบบสอบถาม CPRAM – ผักสลัด", layout="wide")
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "template.pdf")
+EXCEL_PATH = os.path.join(os.path.dirname(__file__), "data_cpram.xlsx")
+# ─── Thai font setup ────────────────────────────────────────────────────────────
+THAI_FONT = None
+_local = os.path.join(os.path.dirname(__file__), "fonts", "THSarabunNew.ttf")
+if os.path.exists(_local):
+    pdfmetrics.registerFont(TTFont("ThaiFont", _local))
+    THAI_FONT = "ThaiFont"
+else:
+    import glob
+    for pattern in ["C:/Windows/Fonts/**/*.ttf", "/usr/share/fonts/**/*.ttf"]:
+        for h in glob.glob(pattern, recursive=True):
+            if any(k in h.lower() for k in ["sarabun","thai","garuda","cordia"]):
+                try:
+                    pdfmetrics.registerFont(TTFont("ThaiFont", h))
+                    THAI_FONT = "ThaiFont"
+                    break
+                except: continue
+        if THAI_FONT: break
+FONT_NAME = THAI_FONT if THAI_FONT else "Helvetica"
+# ─── CSS ────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    .main { font-family: 'Sarabun', sans-serif; }
+    .section-header {
+        color: #2e7d32;
+        font-size: 1.15rem;
+        font-weight: 700;
+        border-bottom: 2px solid #2e7d32;
+        padding-bottom: 6px;
+        margin-bottom: 16px;
+        margin-top: 8px;
+    }
+    .item-card {
+        background: #f1f8e9;
+        border: 1px solid #a5d6a7;
+        border-radius: 10px;
+        padding: 16px 20px 8px;
+        margin-bottom: 18px;
+    }
+    .item-title {
+        font-weight: 700;
+        font-size: 1rem;
+        color: #1b5e20;
+        margin-bottom: 12px;
+    }
+    .stButton>button {
+        background: #2e7d32;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 0.5rem 1.5rem;
+        font-weight: 600;
+    }
+    .stButton>button:hover { background: #1b5e20; }
+    .delete-btn>button {
+        background: #c62828 !important;
+        font-size: 0.85rem;
+        padding: 0.3rem 0.9rem;
+    }
+    .add-btn>button {
+        background: white !important;
+        color: #2e7d32 !important;
+        border: 2px dashed #2e7d32 !important;
+        width: 100%;
+    }
+</style>
+""", unsafe_allow_html=True)
+# ─── session state ──────────────────────────────────────────────────────────────
+if "item_list" not in st.session_state:
+    st.session_state.item_list = [{}]
+def add_item():
+    st.session_state.item_list.append({})
+def remove_item(idx):
+    if len(st.session_state.item_list) > 1:
+        st.session_state.item_list.pop(idx)
+# ─── Thai Data with Zipcode from JSON ──────────────────────────────────────────
 @st.cache_data
-def load_address_data():
-    file_path = 'thailand.xlsx' #
-    if os.path.exists(file_path):
-        df = pd.read_excel(file_path)
-        # ล้างข้อมูลช่องว่างเพื่อให้เปรียบเทียบค่าได้แม่นยำ
-        for col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-        return df
-    return pd.DataFrame()
-
-df_addr = load_address_data()
-
-# จัดการรายการวัตถุดิบด้วย List ใน Session State เพื่อป้องกัน TypeError
-if 'item_ids' not in st.session_state:
-    st.session_state.item_ids = [0]
-if 'next_id' not in st.session_state:
-    st.session_state.next_id = 1
-
-# --- 2. ส่วนหัว (Header) ตามมาตรฐาน FR-QAS ---
-logo_base64 = get_image_base64("image_9482bc.png") #
-header_html = f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-bottom: 20px;">
-        <div style="display: flex; align-items: center;">
-            {f'<img src="data:image/png;base64,{logo_base64}" width="140">' if logo_base64 else ''}
-            <div style="margin-left: 15px;">
-                <b style="font-size: 22px; color: #2e7d32; line-height: 1;">CPRAM Co., Ltd.</b><br>
-                <span style="font-size: 16px; color: #444;">ระบบบันทึกข้อมูลผู้ส่งมอบวัตถุดิบ</span>
-            </div>
-        </div>
-        <div style="text-align: right; line-height: 1.2;">
-            <b style="font-size: 18px; color: #333;">FR-QAS-10-000</b><br>
-            <span style="font-size: 14px; color: #666;">มีผลใช้งาน: 2026-05-08</span>
-        </div>
-    </div>
-"""
-st.markdown(header_html, unsafe_allow_html=True) #
-
-st.markdown("<h3 style='text-align: center; color: #2e7d32;'>แบบสอบถามประจำวันผู้ส่งมอบวัตถุดิบกลุ่มผักสลัด</h3>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #666;'>กรุณากรอกข้อมูลให้ครบถ้วน — เลือก จังหวัด/อำเภอ/ตำบล จาก dropdown ระบบจะกรอกรหัสไปรษณีย์ให้อัตโนมัติ</p>", unsafe_allow_html=True)
-
-# --- 3. ส่วนที่ 1 — ข้อมูลผู้ส่งมอบ ---
-st.markdown("#### <span style='color: #2e7d32;'>ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</span>", unsafe_allow_html=True)
-c1, c2, c3 = st.columns(3)
-supplier = c1.text_input("ผู้ส่งมอบ (Supplier) *")
-d_date = c2.date_input("วันที่ส่งวัตถุดิบ *", value=datetime.now())
-d_time = c3.text_input("เวลาส่ง", placeholder="เช่น 14:00 น.")
-
-c4, c5, c6 = st.columns(3)
-email = c4.text_input("อีเมลของผู้ส่งมอบ (สำหรับรับ PDF) *")
-recorder = c5.text_input("ลงชื่อผู้กรอก")
-origin_def = c6.selectbox("ประเทศแหล่งปลูก (default)", ["ประเทศไทย", "จีน", "อื่นๆ"])
-
-# --- 4. ส่วนที่ 2 — รายการวัตถุดิบ ---
-st.markdown("#### <span style='color: #2e7d32;'>ส่วนที่ 2 — รายการวัตถุดิบ</span> <span style='font-size: 12px; color: #999;'>(เพิ่มได้ไม่จำกัด)</span>", unsafe_allow_html=True)
-
-for index, i in enumerate(st.session_state.item_ids):
-    with st.container():
-        # สร้างกรอบและปุ่มลบ
-        header_col, del_col = st.columns([5, 1])
-        header_col.markdown(f"**รายการที่ {index + 1}**")
-        if del_col.button("✕ ลบรายการนี้", key=f"del_{i}", use_container_width=True):
-            if len(st.session_state.item_ids) > 1:
-                st.session_state.item_ids.remove(i)
-                st.rerun()
-
-        # แถวข้อมูลหลัก
-        r1, r2, r3 = st.columns([2, 1, 1])
-        r1.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
-        r2.text_input("Code", placeholder="เช่น 71000277", key=f"code_{i}")
-        r3.number_input("จำนวน (KG) *", min_value=0.0, format="%.2f", key=f"qty_{i}")
-
-        r4, r5, r6 = st.columns(3)
-        r4.date_input("วันที่เก็บเกี่ยว", key=f"hd_{i}")
-        r5.text_input("เวลาเก็บเกี่ยว", placeholder="เช่น 08:00", key=f"ht_{i}")
-        r6.date_input("วันที่ล้างทำความสะอาด", key=f"cd_{i}")
-
-        r7, r8, r9 = st.columns(3)
-        r7.text_input("เวลาที่ล้างทำความสะอาด", placeholder="เช่น 08:00 หรือ 08:00-09:30", key=f"ct_{i}")
-        r8.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
-        r9.text_input("เลขที่ GAP", key=f"gap_{i}")
-
-        r10, r11, r12 = st.columns(3)
-        r10.text_input("รหัสไร่", key=f"farm_{i}")
-        r11.text_input("ที่อยู่เลขที่", key=f"addr_{i}")
-        r12.text_input("หมู่ที่", key=f"moo_{i}")
-
-        # --- 📍 ส่วนที่อยู่แหล่งปลูก Cascading Dropdown ---
-        st.markdown("📍 **ที่อยู่แหล่งปลูก (cascading dropdown)**")
-        a1, a2, a3, a4 = st.columns(4)
-        
-        country = a1.selectbox("ประเทศ", ["ไทย", "จีน", "อื่นๆ"], key=f"cntry_{i}")
-        zip_auto = ""
-        
-        if country == "ไทย" and not df_addr.empty:
-            prov_list = sorted(df_addr["จังหวัด"].unique().tolist())
-            province = a2.selectbox("จังหวัด/มณฑล", ["- เลือก -"] + prov_list, key=f"prov_{i}")
-            
-            dist_list = []
-            if province != "- เลือก -":
-                dist_list = sorted(df_addr[df_addr["จังหวัด"] == province]["อำเภอ"].unique().tolist())
-            district = a3.selectbox("อำเภอ/เมือง", ["- เลือก -"] + dist_list, key=f"dist_{i}")
-            
-            sub_list = []
-            if district != "- เลือก -":
-                sub_list = sorted(df_addr[(df_addr["จังหวัด"] == province) & (df_addr["อำเภอ"] == district)]["ตำบล"].unique().tolist())
-            sub_dist = a4.selectbox("ตำบล/เขต", ["- เลือก -"] + sub_list, key=f"sub_{i}")
-
-            # ดึงรหัสไปรษณีย์อัตโนมัติ
-            if sub_dist != "- เลือก -":
-                z_match = df_addr[(df_addr["จังหวัด"] == province) & (df_addr["อำเภอ"] == district) & (df_addr["ตำบล"] == sub_dist)]
-                if not z_match.empty and "รหัสไปรษณีย์" in df_addr.columns:
-                    zip_auto = str(z_match["รหัสไปรษณีย์"].values[0])
-        else:
-            a2.text_input("จังหวัด/มณฑล", key=f"prov_m_{i}")
-            a3.text_input("อำเภอ/เมือง", key=f"dist_m_{i}")
-            a4.text_input("ตำบล/เขต", key=f"sub_m_{i}")
-
-        # แถวสุดท้ายของรายการ
-        f1, f2, f3, f4 = st.columns(4)
-        f1.text_input("รหัสไปรษณีย์", value=zip_auto, key=f"zip_{i}")
-        f2.text_input("สายพันธุ์", key=f"breed_{i}")
-        f3.selectbox("ลักษณะการปลูก", ["- เลือก -", "ปลูกอินทรีย์", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"], key=f"style_{i}")
-        f4.selectbox("ลักษณะสถานที่ปลูก", ["- เลือก -", "ระบบเปิด", "ระบบปิด"], key=f"place_{i}")
-        st.markdown("<hr style='border: 1px dashed #2e7d32;'>", unsafe_allow_html=True)
-
-# --- 5. ปุ่มเพิ่มรายการและบันทึก ---
-if st.button("+ เพิ่มรายการวัตถุดิบ", use_container_width=True):
-    st.session_state.item_ids.append(st.session_state.next_id)
-    st.session_state.next_id += 1
-    st.rerun()
-
-if st.button("✅ ยืนยันและตรวจสอบข้อมูล", type="primary", use_container_width=True):
-    if not supplier or not email:
-        st.error("กรุณากรอกข้อมูลสำคัญ (เครื่องหมาย *) ให้ครบถ้วน")
+def load_geo_data():
+    file_path = os.path.join(os.path.dirname(__file__), "thailand_geo_with_zip.json")
+    with open(file_path, encoding="utf-8") as f:
+        return json.load(f)
+GEO_DATA = load_geo_data()
+def get_provinces(country):
+    if country == "ไทย" and GEO_DATA:
+        return sorted(list(GEO_DATA.keys()))
+    return []
+def get_districts(country, province):
+    if country == "ไทย" and GEO_DATA and province in GEO_DATA:
+        return sorted(list(GEO_DATA[province].keys()))
+    return []
+def get_subdistricts(country, province, district):
+    if country == "ไทย" and GEO_DATA and province in GEO_DATA and district in GEO_DATA[province]:
+        return sorted(list(GEO_DATA[province][district].keys()))
+    return []
+def get_zipcode(province, district, subdistrict):
+    try:
+        return GEO_DATA[province][district][subdistrict]
+    except KeyError:
+        return ""
+# ─── EXCEL helper ───────────────────────────────────────────────────────────────
+def save_to_excel(form_data: dict):
+    headers = [
+        "วันที่บันทึก", "ผู้ส่งมอบ", "วันที่ส่งวัตถุดิบ", "เวลาส่ง",
+        "อีเมล", "ลงชื่อผู้กรอก", "ประเทศแหล่งปลูก(default)",
+        "ชนิดวัตถุดิบ", "Code", "จำนวน(KG)",
+        "วันที่เก็บเกี่ยว", "เวลาเก็บเกี่ยว", "วันที่ล้างความสะอาด",
+        "เวลาล้างความสะอาด", "ชื่อผู้ปลูก", "เลขที่GAP",
+        "รหัสไร่", "ที่อยู่เลขที่", "หมู่ที่",
+        "ประเทศ", "จังหวัด", "อำเภอ/เมือง", "ตำบล/เขต",
+        "รหัสไปรษณีย์", "สายพันธุ์", "ลักษณะการปลูก", "ลักษณะสถานที่ปลูก",
+    ]
+    if not os.path.exists(EXCEL_PATH):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "CPRAM Data"
+        ws.append(headers)
+        wb.save(EXCEL_PATH)
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    ws = wb.active
+    for item in form_data.get("items", []):
+        row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            form_data.get("supplier", ""),
+            form_data.get("delivery_date", ""),
+            form_data.get("delivery_time", ""),
+            form_data.get("email", ""),
+            form_data.get("signer", ""),
+            form_data.get("default_country", ""),
+            item.get("material_type", ""),
+            item.get("code", ""),
+            item.get("quantity", ""),
+            item.get("harvest_date", ""),
+            item.get("harvest_time", ""),
+            item.get("clean_date", ""),
+            item.get("clean_time", ""),
+            item.get("grower_name", ""),
+            item.get("gap_number", ""),
+            item.get("farm_code", ""),
+            item.get("address_no", ""),
+            item.get("moo", ""),
+            item.get("country", ""),
+            item.get("province", ""),
+            item.get("district", ""),
+            item.get("subdistrict", ""),
+            item.get("postal_code", ""),
+            item.get("variety", ""),
+            item.get("growing_type", ""),
+            item.get("growing_condition", ""),
+        ]
+        ws.append(row)
+    wb.save(EXCEL_PATH)
+# ─── PDF generation ─────────────────────────────────────────────────────────────
+def draw_text(c, text, x, y, font_size=9, max_width=None):
+    if not text:
+        return
+    c.setFont(FONT_NAME, font_size)
+    if max_width:
+        lines = simpleSplit(str(text), FONT_NAME, font_size, max_width)
+        for i, line in enumerate(lines):
+            c.drawString(x, y - i * (font_size + 2), line)
     else:
-        st.success("บันทึกข้อมูลเรียบร้อย!")
+        c.drawString(x, y, str(text))
+
+def _draw_item_in_template(c, item, supplier, delivery_date, signer, fs=14):
+    """วาดรายการแรกลงในตำแหน่งช่องของ template (รายการที่ 1)"""
+    # Header
+    draw_text(c, supplier,      220, 728, fs, max_width=230)
+    draw_text(c, delivery_date, 465, 728, fs, max_width=100)
+    # ข้อมูลวัตถุดิบ
+    draw_text(c, item.get("material_type",""), 260, 696, fs, max_width=120)
+    draw_text(c, item.get("code",""),          390, 696, fs, max_width=80)
+    draw_text(c, item.get("quantity",""),      490, 696, fs, max_width=60)
+    draw_text(c, item.get("variety",""),           145, 667, fs, max_width=130)
+    draw_text(c, item.get("growing_type",""),      310, 667, fs, max_width=130)
+    draw_text(c, item.get("growing_condition",""), 470, 667, fs, max_width=90)
+    draw_text(c, item.get("harvest_date",""), 210, 638, fs, max_width=150)
+    draw_text(c, item.get("harvest_time",""), 420, 638, fs, max_width=130)
+    draw_text(c, item.get("clean_date",""), 190, 609, fs, max_width=150)
+    draw_text(c, item.get("clean_time",""), 420, 609, fs, max_width=130)
+    draw_text(c, item.get("grower_name",""), 160, 580, fs, max_width=330)
+    draw_text(c, item.get("gap_number",""), 155, 551, fs, max_width=200)
+    draw_text(c, item.get("farm_code",""),  370, 551, fs, max_width=120)
+    addr = " ".join(filter(None, [
+        item.get("address_no",""),
+        f"หมู่ {item.get('moo','')}" if item.get("moo","") else "",
+        item.get("subdistrict",""),
+        item.get("district",""),
+        item.get("province",""),
+        item.get("postal_code",""),
+    ]))
+    draw_text(c, addr, 115, 522, fs, max_width=440)
+    # Footer signature
+    draw_text(c, signer,        420, 62, fs)
+    draw_text(c, delivery_date, 420, 42, fs)
+
+def _draw_extra_item_block(c, item, idx, y_top, fs=11):
+    """
+    วาดรายการที่ 2,3,... เป็นบล็อกย่อต่อท้ายในหน้าเดียวกัน
+    คืน y ของบรรทัดสุดท้ายที่วาด (ใช้คำนวณตำแหน่งของรายการถัดไป)
+    """
+    line_h = fs + 2          # ระยะห่างระหว่างบรรทัด
+    x_left = 50
+    max_w = 495
+    # หัวรายการ (ตัวหนา-เน้น)
+    title = f"รายการที่ {idx}: {item.get('material_type','')}"
+    c.setFont(FONT_NAME, fs + 1)
+    c.drawString(x_left, y_top, title)
+    y = y_top - line_h - 2
+    c.setFont(FONT_NAME, fs)
+    # บรรทัดที่ 1: code + จำนวน + สายพันธุ์
+    line1 = f"   Code: {item.get('code','')}   |   จำนวน: {item.get('quantity','')} KG   |   สายพันธุ์: {item.get('variety','')}"
+    draw_text(c, line1, x_left, y, fs, max_width=max_w); y -= line_h
+    # บรรทัดที่ 2: เก็บเกี่ยว / ล้าง
+    line2 = f"   เก็บเกี่ยว: {item.get('harvest_date','')} {item.get('harvest_time','') or ''}   |   ล้าง: {item.get('clean_date','')} {item.get('clean_time','') or ''}"
+    draw_text(c, line2, x_left, y, fs, max_width=max_w); y -= line_h
+    # บรรทัดที่ 3: ปลูก
+    line3 = f"   ลักษณะการปลูก: {item.get('growing_type','')}   |   สถานที่ปลูก: {item.get('growing_condition','')}"
+    draw_text(c, line3, x_left, y, fs, max_width=max_w); y -= line_h
+    # บรรทัดที่ 4: ผู้ปลูก / GAP / รหัสไร่
+    line4 = f"   ผู้ปลูก: {item.get('grower_name','')}   |   GAP: {item.get('gap_number','')}   |   รหัสไร่: {item.get('farm_code','')}"
+    draw_text(c, line4, x_left, y, fs, max_width=max_w); y -= line_h
+    # บรรทัดที่ 5: ที่อยู่
+    addr = " ".join(filter(None, [
+        item.get("address_no",""),
+        f"หมู่ {item.get('moo','')}" if item.get("moo","") else "",
+        item.get("subdistrict",""),
+        item.get("district",""),
+        item.get("province",""),
+        item.get("postal_code",""),
+    ]))
+    line5 = f"   ที่อยู่: {addr}"
+    draw_text(c, line5, x_left, y, fs, max_width=max_w); y -= line_h
+    # เส้นคั่น
+    c.setStrokeColorRGB(0.6, 0.6, 0.6)
+    c.setLineWidth(0.4)
+    c.line(x_left, y + 4, x_left + max_w, y + 4)
+    return y - 4
+
+def generate_pdf(form_data: dict) -> bytes:
+    """
+    สร้าง PDF — รายการที่ 1 ใช้ช่องของ template
+    รายการที่ 2, 3, ... ต่อท้ายเป็นบล็อกย่อในหน้าเดียวกัน
+    ถ้าพื้นที่ไม่พอจะเปิดหน้าใหม่ (ใช้ template หน้าแรกเป็นพื้นหลัง)
+    """
+    reader = PdfReader(TEMPLATE_PATH)
+    writer = PdfWriter()
+    supplier      = form_data.get("supplier", "")
+    delivery_date = form_data.get("delivery_date", "")
+    signer        = form_data.get("signer", "")
+    items         = form_data.get("items", []) or [{}]
+    W, H = 595.32, 841.92
+    fs = 14
+    # พื้นที่สำหรับรายการต่อท้าย (ใต้ที่อยู่ของรายการที่ 1 ลงมาถึงเหนือ footer)
+    EXTRA_START_Y   = 495       # เริ่มวาดรายการที่ 2 ตรงนี้
+    EXTRA_MIN_Y     = 110       # ไม่ให้เลยลงไปทับ footer (signer y=62)
+    EXTRA_BLOCK_H   = 88        # ความสูงโดยประมาณของแต่ละบล็อก (6 บรรทัด*13 + spacing)
+    NEW_PAGE_TOP_Y  = 750       # ในหน้าต่อ (ถ้าจำเป็น) เริ่มสูงขึ้นเพราะไม่มี item 1
+    # ── หน้าแรก: template + รายการที่ 1 ในช่อง + รายการที่ 2+ ต่อท้าย ─────────
+    overlay_buf = io.BytesIO()
+    c = canvas.Canvas(overlay_buf, pagesize=(W, H))
+    c.setFillColorRGB(0, 0, 0)
+    _draw_item_in_template(c, items[0], supplier, delivery_date, signer, fs)
+    # ----- หัวข้อแยกหมวด -----
+    if len(items) > 1:
+        c.setFont(FONT_NAME, 12)
+        c.setFillColorRGB(0.18, 0.49, 0.20)
+        c.drawString(50, EXTRA_START_Y + 10, "── รายการวัตถุดิบเพิ่มเติม ──")
+        c.setFillColorRGB(0, 0, 0)
+    y = EXTRA_START_Y
+    next_extra_idx = 1   # index ใน items[] ของรายการถัดไปที่ยังไม่ได้วาด
+    while next_extra_idx < len(items) and (y - EXTRA_BLOCK_H) >= EXTRA_MIN_Y:
+        y = _draw_extra_item_block(c, items[next_extra_idx], next_extra_idx + 1, y, fs=11)
+        next_extra_idx += 1
+    c.save()
+    overlay_buf.seek(0)
+    overlay_reader = PdfReader(overlay_buf)
+    page1 = copy.copy(reader.pages[0])
+    page1.merge_page(overlay_reader.pages[0])
+    writer.add_page(page1)
+    # ── ถ้ายังเหลือรายการที่ใส่ไม่ลง → เปิดหน้าใหม่ (ใช้ template เป็นพื้นหลัง) ─
+    while next_extra_idx < len(items):
+        ov = io.BytesIO()
+        cc = canvas.Canvas(ov, pagesize=(W, H))
+        cc.setFillColorRGB(0, 0, 0)
+        # หัวกระดาษ (supplier + วันที่ส่ง) ของหน้าต่อ
+        draw_text(cc, supplier,      220, 728, fs, max_width=230)
+        draw_text(cc, delivery_date, 465, 728, fs, max_width=100)
+        cc.setFont(FONT_NAME, 12)
+        cc.setFillColorRGB(0.18, 0.49, 0.20)
+        cc.drawString(50, NEW_PAGE_TOP_Y, "── รายการวัตถุดิบเพิ่มเติม (ต่อ) ──")
+        cc.setFillColorRGB(0, 0, 0)
+        # footer signer
+        draw_text(cc, signer,        420, 62, fs)
+        draw_text(cc, delivery_date, 420, 42, fs)
+        y = NEW_PAGE_TOP_Y - 20
+        while next_extra_idx < len(items) and (y - EXTRA_BLOCK_H) >= EXTRA_MIN_Y:
+            y = _draw_extra_item_block(cc, items[next_extra_idx], next_extra_idx + 1, y, fs=11)
+            next_extra_idx += 1
+        cc.save()
+        ov.seek(0)
+        new_reader = PdfReader(ov)
+        # ใช้ template หน้าแรก (เปล่าๆ) เป็นพื้นหลังก็ได้ — แต่จะมี label เก่าซ้อน
+        # เพื่อความสะอาด ใช้หน้าเปล่า
+        from pypdf import PageObject
+        blank = PageObject.create_blank_page(width=W, height=H)
+        blank.merge_page(new_reader.pages[0])
+        writer.add_page(blank)
+    # ── หน้าที่เหลือของ template (ถ้ามี) เติมท้ายอีกครั้งเดียว ────────────────
+    for page in reader.pages[1:]:
+        extra_buf = io.BytesIO()
+        ec = canvas.Canvas(extra_buf, pagesize=(W, H))
+        ec.setFillColorRGB(0, 0, 0)
+        draw_text(ec, signer,        420, 62, fs)
+        draw_text(ec, delivery_date, 420, 42, fs)
+        ec.save()
+        extra_buf.seek(0)
+        extra_reader = PdfReader(extra_buf)
+        p = copy.copy(page)
+        p.merge_page(extra_reader.pages[0])
+        writer.add_page(p)
+    out_buf = io.BytesIO()
+    writer.write(out_buf)
+    out_buf.seek(0)
+    return out_buf.read()
+# ─── Email send ─────────────────────────────────────────────────────────────────
+def send_email(to_addr: str, pdf_bytes: bytes, smtp_cfg: dict) -> tuple[bool, str]:
+    try:
+        msg = MIMEMultipart()
+        msg["From"]    = smtp_cfg["user"]
+        msg["To"]      = to_addr
+        msg["Subject"] = Header("แบบสอบถามประจำวัน CPRAM – ผักสลัด", "utf-8")
+        msg.attach(MIMEText("กรุณาดูเอกสารแบบสอบถามที่แนบมาด้วยครับ/ค่ะ", "plain", "utf-8"))
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(pdf_bytes)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", 'attachment; filename="cpram_questionnaire.pdf"')
+        msg.attach(part)
+        port = int(smtp_cfg["port"])
+        if port == 465:
+            server = smtplib.SMTP_SSL(smtp_cfg["host"], port, timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_cfg["host"], port, timeout=30)
+            server.starttls()
+        server.login(smtp_cfg["user"], smtp_cfg["password"])
+        server.send_message(msg)
+        server.quit()
+        return True, ""
+    except smtplib.SMTPAuthenticationError as e:
+        return False, f"รหัสผ่านไม่ถูกต้อง (ต้องใช้ App Password 16 หลัก): {e}"
+    except Exception as e:
+        return False, str(e)
+# ══════════════════════════════════════════════════════════════════════════════
+# UI
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("<h2 style='color:#1b5e20;text-align:center;'>📋 แบบสอบถามประจำวัน CPRAM – ผักสลัด</h2>", unsafe_allow_html=True)
+# ── ส่วนที่ 1 ──────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-header">ส่วนที่ 1 — ข้อมูลผู้ส่งมอบและการส่งมอบ</div>', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([2, 2, 2])
+with col1:
+    supplier = st.text_input("ผู้ส่งมอบ (Supplier) *", key="supplier")
+with col2:
+    delivery_date = st.date_input("วันที่ส่งวัตถุดิบ *", key="delivery_date", value=None)
+with col3:
+    delivery_time = st.time_input("เวลาส่ง", key="delivery_time", value=None, step=60)
+col4, col5, col6 = st.columns([2, 2, 2])
+with col4:
+    email = st.text_input("อีเมลของผู้ส่งมอบ (สำหรับรับ PDF) *", key="email")
+with col5:
+    signer = st.text_input("ลงชื่อผู้กรอก", key="signer")
+with col6:
+    default_country = st.selectbox("ประเทศแหล่งปลูก (default)", ["ประเทศไทย", "จีน", "ญี่ปุ่น", "เกาหลี", "อื่นๆ"], key="default_country")
+st.markdown("---")
+# ── ส่วนที่ 2 ──────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-header">ส่วนที่ 2 — รายการวัตถุดิบ <span style="font-size:0.85rem;font-weight:400;">(เพิ่มได้ไม่จำกัด)</span></div>', unsafe_allow_html=True)
+GROWING_TYPES = ["- เลือก -", "ปลูกดินยกพื้น", "ปลูกดินไม่ยกพื้น", "ปลูกไฮโดรโปนิกส์"]
+GROWING_CONDITIONS = ["- เลือก -", "ระบบเปิด", "ระบบปิด"]
+items_data = []
+for i, _ in enumerate(st.session_state.item_list):
+    st.markdown(f'<div class="item-card"><div class="item-title">รายการที่ {i+1}</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([3, 2, 2])
+    with c1:
+        mat = st.text_input("ชนิดวัตถุดิบที่ส่งให้ทาง CPRAM *", key=f"mat_{i}")
+    with c2:
+        code = st.text_input("Code (เช่น 71000277)", key=f"code_{i}")
+    with c3:
+        qty = st.text_input("จำนวน (KG) *", key=f"qty_{i}")
+    c4, c5, c6 = st.columns([2, 2, 2])
+    with c4:
+        h_date = st.date_input("วันที่เก็บเกี่ยว", key=f"hdate_{i}", value=None)
+    with c5:
+        h_time = st.time_input("เวลาเก็บเกี่ยว", key=f"htime_{i}", value=None, step=60)
+    with c6:
+        c_date = st.date_input("วันที่ล้างทำความสะอาด", key=f"cdate_{i}", value=None)
+    c7, c8, c9 = st.columns([2, 2, 2])
+    with c7:
+        c_time = st.time_input("เวลาล้างทำความสะอาด", key=f"ctime_{i}", value=None, step=60)
+    with c8:
+        grower = st.text_input("ชื่อผู้ปลูก", key=f"grower_{i}")
+    with c9:
+        gap = st.text_input("เลขที่ GAP", key=f"gap_{i}")
+    c10, c11, c12 = st.columns([2, 2, 2])
+    with c10:
+        farm_code = st.text_input("รหัสไร่", key=f"fcode_{i}")
+    with c11:
+        addr_no = st.text_input("ที่อยู่เลขที่", key=f"addr_{i}")
+    with c12:
+        moo = st.text_input("หมู่ที่", key=f"moo_{i}")
+    st.markdown("📍 **ที่อยู่แหล่งปลูก**")
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    with cc1:
+        country_opts = ["ไทย"]
+        country = st.selectbox("ประเทศ", country_opts, key=f"cntry_{i}")
+    with cc2:
+        prov_opts = ["- เลือก -"] + get_provinces(country)
+        province = st.selectbox("จังหวัด/มณฑล", prov_opts, key=f"prov_{i}")
+    with cc3:
+        dist_opts = ["- เลือกจังหวัดก่อน -"]
+        if province != "- เลือก -":
+            dist_opts = ["- เลือก -"] + get_districts(country, province)
+        district = st.selectbox("อำเภอ/เมือง", dist_opts, key=f"dist_{i}")
+    with cc4:
+        sub_opts = ["- เลือกอำเภอก่อน -"]
+        if district not in ("- เลือก -", "- เลือกจังหวัดก่อน -"):
+            subs = get_subdistricts(country, province, district)
+            sub_opts = ["- เลือก -"] + subs
+        subdistrict = st.selectbox("ตำบล/เขต", sub_opts, key=f"sub_{i}")
+    auto_zip = ""
+    if country == "ไทย" and subdistrict not in ("- เลือก -", "- เลือกอำเภอก่อน -"):
+        auto_zip = get_zipcode(province, district, subdistrict)
+    cc5, cc6, cc7, cc8 = st.columns(4)
+    with cc5:
+        st.text_input("รหัสไปรษณีย์", value=auto_zip, key=f"postal_display_{i}", disabled=True)
+        postal = auto_zip
+    with cc6:
+        variety = st.text_input("สายพันธุ์", key=f"variety_{i}")
+    with cc7:
+        g_type = st.selectbox("ลักษณะการปลูก", GROWING_TYPES, key=f"gtype_{i}")
+    with cc8:
+        g_cond = st.selectbox("ลักษณะสถานที่ปลูก", GROWING_CONDITIONS, key=f"gcond_{i}")
+    if len(st.session_state.item_list) > 1:
+        _, del_col = st.columns([6, 1])
+        with del_col:
+            st.markdown('<div class="delete-btn">', unsafe_allow_html=True)
+            if st.button("✕ ลบรายการนี้", key=f"del_{i}"):
+                remove_item(i)
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    items_data.append({
+        "material_type": mat,
+        "code": code,
+        "quantity": qty,
+        "harvest_date": h_date.strftime("%d/%m/%Y") if h_date else "",
+        "harvest_time": h_time,
+        "clean_date": c_date.strftime("%d/%m/%Y") if c_date else "",
+        "clean_time": c_time,
+        "grower_name": grower,
+        "gap_number": gap,
+        "farm_code": farm_code,
+        "address_no": addr_no,
+        "moo": moo,
+        "country": country,
+        "province": province if province != "- เลือก -" else "",
+        "district": district if district not in ("- เลือก -","- เลือกจังหวัดก่อน -") else "",
+        "subdistrict": subdistrict if subdistrict not in ("- เลือก -","- เลือกอำเภอก่อน -") else "",
+        "postal_code": postal,
+        "variety": variety,
+        "growing_type": g_type if g_type != "- เลือก -" else "",
+        "growing_condition": g_cond if g_cond != "- เลือก -" else "",
+    })
+st.markdown('<div class="add-btn">', unsafe_allow_html=True)
+if st.button("＋ เพิ่มรายการวัตถุดิบ"):
+    add_item()
+    st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("---")
+# ══════════════════════════════════════════════════════════════════════════════
+# 🚀 ปุ่มเดียวจบ — ผู้ใช้แค่กดปุ่มนี้ ระบบจะส่งอีเมลให้อัตโนมัติ
+# ══════════════════════════════════════════════════════════════════════════════
+if st.button("📤 บันทึกและส่ง PDF ไปที่อีเมล", use_container_width=True, type="primary"):
+    errors = []
+    if not supplier:       errors.append("กรุณากรอก ผู้ส่งมอบ")
+    if not delivery_date:  errors.append("กรุณาเลือก วันที่ส่งวัตถุดิบ")
+    if not delivery_time:  errors.append("กรุณากรอก เวลาส่ง")
+    if not email:          errors.append("กรุณากรอก อีเมล")
+    if not signer:         errors.append("กรุณากรอก ลงชื่อผู้กรอก")
+    for idx, it in enumerate(items_data):
+        n = idx + 1
+        if not it["material_type"]:     errors.append(f"รายการที่ {n}: กรุณากรอก ชนิดวัตถุดิบ")
+        if not it["code"]:              errors.append(f"รายการที่ {n}: กรุณากรอก Code")
+        if not it["quantity"]:          errors.append(f"รายการที่ {n}: กรุณากรอก จำนวน")
+        if not it["harvest_date"]:      errors.append(f"รายการที่ {n}: กรุณาเลือก วันที่เก็บเกี่ยว")
+        if not it["harvest_time"]:      errors.append(f"รายการที่ {n}: กรุณากรอก เวลาเก็บเกี่ยว")
+        if not it["clean_date"]:        errors.append(f"รายการที่ {n}: กรุณาเลือก วันที่ล้าง")
+        if not it["clean_time"]:        errors.append(f"รายการที่ {n}: กรุณากรอก เวลาล้าง")
+        if not it["grower_name"]:       errors.append(f"รายการที่ {n}: กรุณากรอก ชื่อผู้ปลูก")
+        if not it["gap_number"]:        errors.append(f"รายการที่ {n}: กรุณากรอก เลขที่ GAP")
+        if not it["farm_code"]:         errors.append(f"รายการที่ {n}: กรุณากรอก รหัสไร่")
+        if not it["address_no"]:        errors.append(f"รายการที่ {n}: กรุณากรอก ที่อยู่เลขที่")
+        if not it["province"]:          errors.append(f"รายการที่ {n}: กรุณาเลือก จังหวัด")
+        if not it["district"]:          errors.append(f"รายการที่ {n}: กรุณาเลือก อำเภอ")
+        if not it["subdistrict"]:       errors.append(f"รายการที่ {n}: กรุณาเลือก ตำบล")
+        if not it["variety"]:           errors.append(f"รายการที่ {n}: กรุณากรอก สายพันธุ์")
+        if not it["growing_type"]:      errors.append(f"รายการที่ {n}: กรุณาเลือก ลักษณะการปลูก")
+        if not it["growing_condition"]: errors.append(f"รายการที่ {n}: กรุณาเลือก ลักษณะสถานที่ปลูก")
+    if errors:
+        for e in errors:
+            st.error(e)
+    else:
+        form_data = {
+            "supplier":        supplier,
+            "delivery_date":   delivery_date.strftime("%d/%m/%Y") if delivery_date else "",
+            "delivery_time":   delivery_time,
+            "email":           email,
+            "signer":          signer,
+            "default_country": default_country,
+            "items":           items_data,
+        }
+        with st.spinner("กำลังประมวลผล..."):
+            try:
+                save_to_excel(form_data)
+            except Exception as ex:
+                st.warning(f"บันทึก Excel ไม่สำเร็จ: {ex}")
+            pdf_bytes = None
+            try:
+                pdf_bytes = generate_pdf(form_data)
+            except Exception as ex:
+                st.error(f"สร้าง PDF ไม่สำเร็จ: {ex}")
+            if pdf_bytes:
+                smtp_cfg = get_smtp_config()
+                sent, err = send_email(email, pdf_bytes, smtp_cfg)
+                if sent:
+                    st.success(f"✅ ส่ง PDF ไปยัง **{email}** เรียบร้อยแล้ว! กรุณาตรวจสอบกล่องอีเมล")
+                    st.balloons()
+                else:
+                    st.error(f"❌ ส่งอีเมลไม่สำเร็จ: {err}")
+                    st.info("กรุณาดาวน์โหลด PDF ด้านล่าง แล้วแจ้งผู้ดูแลระบบ")
+                    st.download_button(
+                        label="⬇️ ดาวน์โหลด PDF",
+                        data=pdf_bytes,
+                        file_name=f"cpram_{supplier}_{delivery_date}.pdf",
+                        mime="application/pdf",
+                    )
+# ── ส่วนสำหรับผู้ดูแลระบบ ──────────────────────────────────────────────────────
+def get_encrypted_excel_bytes() -> bytes:
+    with open(EXCEL_PATH, "rb") as f:
+        plain_bytes = f.read()
+    if not HAS_MSOFFCRYPTO:
+        return plain_bytes
+    try:
+        plain_buf = io.BytesIO(plain_bytes)
+        enc_buf = io.BytesIO()
+        office = msoffcrypto.OfficeFile(plain_buf)
+        office.encrypt(EXCEL_PASSWORD, enc_buf)
+        enc_buf.seek(0)
+        return enc_buf.read()
+    except Exception as ex:
+        st.warning(f"เข้ารหัสไม่สำเร็จ ({ex}) — ดาวน์โหลดเป็นไฟล์ปกติแทน")
+        return plain_bytes
+with st.expander("🔒 สำหรับผู้ดูแลระบบ"):
+    admin_pw = st.text_input("รหัสผ่านผู้ดูแลระบบ", type="password", key="admin_pw_input")
+    if admin_pw == ADMIN_PASSWORD:
+        st.success("✅ เข้าสู่ระบบสำเร็จ")
+        if not HAS_MSOFFCRYPTO:
+            st.warning("⚠️ ยังไม่ได้ติดตั้ง `msoffcrypto-tool` — ไฟล์ที่ดาวน์โหลดจะไม่ได้เข้ารหัส\n\nรัน: `pip install msoffcrypto-tool`")
+        if os.path.exists(EXCEL_PATH):
+            excel_bytes = get_encrypted_excel_bytes()
+            if HAS_MSOFFCRYPTO:
+                st.info(f"🔐 ไฟล์เข้ารหัสไว้แล้ว — รหัสเปิดไฟล์: **`{EXCEL_PASSWORD}`**")
+            st.download_button(
+                label="📊 ดาวน์โหลดไฟล์ Excel (ข้อมูลทั้งหมด)",
+                data=excel_bytes,
+                file_name="data_cpram_encrypted.xlsx" if HAS_MSOFFCRYPTO else "data_cpram.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            st.caption("ยังไม่มีข้อมูล Excel")
+    elif admin_pw:
+        st.error("❌ รหัสผ่านไม่ถูกต้อง")
+    else:
+        st.caption("กรุณากรอกรหัสผ่านเพื่อเข้าถึงข้อมูล")
